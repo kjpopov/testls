@@ -23,8 +23,8 @@ const EXPIRY_WARNING_DAYS: i64 = 30;
 ///
 /// `host` is the name the client connected to (SNI name or IP address); it
 /// is matched against the leaf's subject alternative names. Internationalised
-/// names may be in Unicode or A-label (punycode) form. `now` is the current
-/// time as a Unix timestamp.
+/// names must already be in A-label (punycode) form, as they are on the wire
+/// in SNI (RFC 6066 §3). `now` is the current time as a Unix timestamp.
 #[must_use]
 pub fn certificate_findings(chain: &[Vec<u8>], host: Option<&str>, now: i64) -> Vec<Finding> {
     let Some(leaf_der) = chain.first() else {
@@ -153,14 +153,10 @@ fn ip_matches(ip: IpAddr, octets: &[u8]) -> bool {
 ///
 /// Comparison is case-insensitive and ignores a trailing dot. A wildcard is
 /// only honoured as the complete left-most label and matches exactly one
-/// label. Unicode hosts are converted to A-labels before comparison
-/// (RFC 9525 §6.3); invalid IDNA names do not match.
+/// label.
 fn dns_matches(pattern: &str, host: &str) -> bool {
     let pattern = pattern.trim_end_matches('.').to_ascii_lowercase();
     let host = host.trim_end_matches('.').to_ascii_lowercase();
-    let Ok(host) = idna::domain_to_ascii(&host) else {
-        return false;
-    };
     match pattern.strip_prefix("*.") {
         Some(suffix) => host
             .split_once('.')
@@ -271,8 +267,6 @@ mod tests {
 
     /// Self-signed P-256 leaf, SAN `localhost` + `127.0.0.1`, valid 2026-01-01..2027-01-01.
     const EC_LOCALHOST: &[u8] = include_bytes!("testdata/ec-localhost.der");
-    /// Self-signed P-256 leaf, SAN `xn--bcher-kva.example`, same validity.
-    const EC_IDN: &[u8] = include_bytes!("testdata/ec-idn.der");
     /// Self-signed RSA-1024/SHA-1 leaf, SAN `*.example.com`, same validity.
     const RSA1024_SHA1: &[u8] = include_bytes!("testdata/rsa1024-sha1-wildcard.der");
     /// Self-signed RSA-2048 leaf without SAN (CN `nosan.example`), same validity.
@@ -300,18 +294,6 @@ mod tests {
         assert_eq!(ids(EC_LOCALHOST, Some("localhost"), MID_2026), NONE);
         assert_eq!(ids(EC_LOCALHOST, Some("127.0.0.1"), MID_2026), NONE);
         assert_eq!(ids(EC_LOCALHOST, None, MID_2026), NONE);
-    }
-
-    /// Unicode and punycode hosts match the same A-label certificate SAN.
-    #[test]
-    fn internationalized_hostname() {
-        for host in ["bücher.example", "BÜCHER.EXAMPLE.", "xn--bcher-kva.example"] {
-            assert_eq!(ids(EC_IDN, Some(host), MID_2026), NONE, "{host}");
-        }
-        assert_eq!(
-            ids(EC_IDN, Some("bucher.example"), MID_2026),
-            ["cert.hostname_mismatch"]
-        );
     }
 
     /// Validity window boundaries.
@@ -462,25 +444,5 @@ mod tests {
         assert!(!dns_matches("*.example.com", "example.com"));
         assert!(!dns_matches("*.example.com", "a.b.example.com"));
         assert!(!dns_matches("w*.example.com", "www.example.com"));
-    }
-
-    /// IDNA conversion preserves Unicode equivalence and wildcard boundaries.
-    #[test]
-    fn dns_matching_idna() {
-        assert!(dns_matches("xn--bcher-kva.example", "bücher.example"));
-        assert!(dns_matches("XN--BCHER-KVA.EXAMPLE", "BÜCHER.EXAMPLE."));
-        assert!(dns_matches(
-            "xn--bcher-kva.example",
-            "bu\u{308}cher.example"
-        ));
-        assert!(dns_matches("*.example", "bücher.example"));
-        assert!(dns_matches("*.xn--bcher-kva.example", "www.bücher.example"));
-        assert!(!dns_matches("*.xn--bcher-kva.example", "bücher.example"));
-        assert!(!dns_matches(
-            "*.xn--bcher-kva.example",
-            "a.b.bücher.example"
-        ));
-        assert!(!dns_matches("xn--bcher-kva.example", "bucher.example"));
-        assert!(!dns_matches("*.example", "\u{fffd}.example"));
     }
 }
