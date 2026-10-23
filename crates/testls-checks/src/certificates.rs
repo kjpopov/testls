@@ -9,6 +9,7 @@ use x509_parser::certificate::X509Certificate;
 use x509_parser::extensions::GeneralName;
 use x509_parser::parse_x509_certificate;
 use x509_parser::public_key::PublicKey;
+use x509_parser::signature_algorithm::SignatureAlgorithm;
 
 use crate::{Finding, Severity};
 
@@ -21,8 +22,9 @@ const EXPIRY_WARNING_DAYS: i64 = 30;
 /// Checks a DER certificate chain (leaf first) as presented by a server.
 ///
 /// `host` is the name the client connected to (SNI name or IP address); it
-/// is matched against the leaf's subject alternative names. `now` is the
-/// current time as a Unix timestamp.
+/// is matched against the leaf's subject alternative names. Internationalised
+/// names must already be in A-label (punycode) form, as they are on the wire
+/// in SNI (RFC 6066 §3). `now` is the current time as a Unix timestamp.
 #[must_use]
 pub fn certificate_findings(chain: &[Vec<u8>], host: Option<&str>, now: i64) -> Vec<Finding> {
     let Some(leaf_der) = chain.first() else {
@@ -49,8 +51,17 @@ pub fn certificate_findings(chain: &[Vec<u8>], host: Option<&str>, now: i64) -> 
     }
     findings.extend(key_finding(&leaf));
     for (position, der) in chain.iter().enumerate() {
-        if let Ok((_, cert)) = parse_x509_certificate(der) {
-            findings.extend(signature_finding(&cert, position));
+        if position == 0 {
+            findings.extend(signature_finding(&leaf, position));
+            continue;
+        }
+        match parse_x509_certificate(der) {
+            Ok((_, cert)) => findings.extend(signature_finding(&cert, position)),
+            Err(e) => findings.push(Finding::new(
+                "cert.unparsable",
+                Severity::High,
+                format!("chain certificate #{position} cannot be parsed: {e}"),
+            )),
         }
     }
     findings
@@ -188,14 +199,22 @@ const WEAK_SIGNATURES: &[(&str, Severity, &str)] = &[
     ("1.2.840.10045.4.1", Severity::High, "SHA-1"),
 ];
 
+/// Hash algorithms that make an RSASSA-PSS signature weak, by OID.
+///
+/// OIDs from RFC 8017 appendix B.1 and RFC 3279 §2.2.
+const WEAK_PSS_HASHES: &[(&str, Severity, &str)] = &[
+    ("1.2.840.113549.2.2", Severity::Critical, "MD2"),
+    ("1.2.840.113549.2.5", Severity::Critical, "MD5"),
+    ("1.3.14.3.2.26", Severity::High, "SHA-1"),
+];
+
 /// Weak signature on a certificate. Self-signed certificates above the leaf
 /// (roots) are skipped: clients never verify their signature.
 fn signature_finding(cert: &X509Certificate<'_>, position: usize) -> Option<Finding> {
-    if cert.subject() == cert.issuer() && position > 0 {
+    if position > 0 && is_self_signed(cert) {
         return None;
     }
-    let oid = cert.signature_algorithm.algorithm.to_id_string();
-    let &(_, severity, hash) = WEAK_SIGNATURES.iter().find(|(o, ..)| *o == oid)?;
+    let (severity, hash) = weak_signature(cert)?;
     let which = if position == 0 {
         "leaf certificate".to_owned()
     } else {
@@ -206,6 +225,30 @@ fn signature_finding(cert: &X509Certificate<'_>, position: usize) -> Option<Find
         severity,
         format!("{which} is signed with {hash}"),
     ))
+}
+
+/// Whether the certificate is signed by its own key, not merely self-issued
+/// (a key rollover certificate has subject == issuer but a different key).
+fn is_self_signed(cert: &X509Certificate<'_>) -> bool {
+    cert.subject() == cert.issuer() && cert.verify_signature(None).is_ok()
+}
+
+/// Severity and hash name of a weak signature algorithm, if it is one.
+///
+/// For RSASSA-PSS the hash comes from the parameters, defaulting to SHA-1
+/// when absent (RFC 4055 §3.1).
+fn weak_signature(cert: &X509Certificate<'_>) -> Option<(Severity, &'static str)> {
+    let algorithm = &cert.signature_algorithm;
+    let (table, oid) = match SignatureAlgorithm::try_from(algorithm) {
+        Ok(SignatureAlgorithm::RSASSA_PSS(params)) => {
+            (WEAK_PSS_HASHES, params.hash_algorithm_oid().to_id_string())
+        }
+        _ => (WEAK_SIGNATURES, algorithm.algorithm.to_id_string()),
+    };
+    table
+        .iter()
+        .find(|(o, ..)| *o == oid)
+        .map(|&(_, severity, hash)| (severity, hash))
 }
 
 #[cfg(test)]
@@ -301,6 +344,54 @@ mod tests {
             .map(|f| f.id)
             .collect();
         assert_eq!(ids, NONE);
+    }
+
+    /// Self-signed RSA-2048 leaf signed with RSASSA-PSS using the default
+    /// (SHA-1) hash parameters, SAN `pss.example`, same validity.
+    const RSA_PSS_SHA1: &[u8] = include_bytes!("testdata/rsa-pss-sha1.der");
+    /// Self-issued `CN=Rollover` certificate whose SHA-1 signature was made
+    /// by a different key (a key rollover certificate), same validity.
+    const ROLLOVER_SHA1: &[u8] = include_bytes!("testdata/rollover-sha1.der");
+    /// Self-signed `CN=Rollover` SHA-1 root, same validity.
+    const ROOT_SHA1: &[u8] = include_bytes!("testdata/root-sha1.der");
+
+    /// RSASSA-PSS with the default SHA-1 hash counts as a SHA-1 signature.
+    #[test]
+    fn pss_default_sha1_is_weak() {
+        let findings =
+            certificate_findings(&[RSA_PSS_SHA1.to_vec()], Some("pss.example"), MID_2026);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id, "cert.weak_signature");
+        assert_eq!(findings[0].severity, Severity::High);
+        assert_eq!(findings[0].message, "leaf certificate is signed with SHA-1");
+    }
+
+    /// A self-issued certificate signed by another key is still judged;
+    /// a truly self-signed root is not.
+    #[test]
+    fn rollover_signature_reported() {
+        let chain = [
+            EC_LOCALHOST.to_vec(),
+            ROLLOVER_SHA1.to_vec(),
+            ROOT_SHA1.to_vec(),
+        ];
+        let findings = certificate_findings(&chain, Some("localhost"), MID_2026);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id, "cert.weak_signature");
+        assert_eq!(
+            findings[0].message,
+            "chain certificate #1 is signed with SHA-1"
+        );
+    }
+
+    /// An unparsable certificate further up the chain is reported.
+    #[test]
+    fn unparsable_chain_certificate() {
+        let chain = [EC_LOCALHOST.to_vec(), b"garbage".to_vec()];
+        let findings = certificate_findings(&chain, Some("localhost"), MID_2026);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id, "cert.unparsable");
+        assert!(findings[0].message.starts_with("chain certificate #1 "));
     }
 
     /// Empty and garbage chains.
