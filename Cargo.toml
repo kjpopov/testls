@@ -21,6 +21,7 @@ getrandom = "0.4"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tokio = { version = "1.47", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+x509-parser = "0.18"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

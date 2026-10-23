@@ -12,6 +12,7 @@ authors.workspace = true
 testls-data.workspace = true
 testls-probe.workspace = true
 testls-wire.workspace = true
+x509-parser.workspace = true
 
 [lints]
 workspace = true

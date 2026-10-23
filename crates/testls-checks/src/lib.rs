@@ -1,10 +1,12 @@
 //! Scan findings, severity model, and check implementations.
 
+mod certificates;
 mod ciphers;
 mod protocols;
 
 use std::fmt;
 
+pub use certificates::certificate_findings;
 pub use ciphers::{cipher_findings, cipher_name, cipher_severity};
 pub use protocols::{protocol_findings, protocol_severity};
 
