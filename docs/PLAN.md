@@ -107,3 +107,4 @@ Two connection paths:
 | 12 | GitHub + GitHub Actions | Existing repo host |
 | 13 | Severity levels ok < info < low < medium < high < critical; `--fail-on` defaults to `high` | Weak-but-common configs (CBC, no PFS) should not fail CI by default |
 | 14 | rustls with the `ring` crypto provider (no `aws-lc-rs`) | Simple cross-builds for static musl and Windows: no cmake/nasm toolchain |
+| 15 | Convert certificate reference hostnames to IDNA A-labels before SAN matching | Accept equivalent Unicode and punycode inputs while preserving RFC 9525 wildcard rules |
