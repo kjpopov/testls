@@ -34,8 +34,8 @@ pub fn certificate_findings(chain: &[Vec<u8>], host: Option<&str>, now: i64) -> 
             "server sent no certificate",
         )];
     };
-    let leaf = match parse_x509_certificate(leaf_der) {
-        Ok((_, cert)) => cert,
+    let leaf = match parse_entry(leaf_der) {
+        Ok(cert) => cert,
         Err(e) => {
             return vec![Finding::new(
                 "cert.unparsable",
@@ -55,8 +55,8 @@ pub fn certificate_findings(chain: &[Vec<u8>], host: Option<&str>, now: i64) -> 
             findings.extend(signature_finding(&leaf, position));
             continue;
         }
-        match parse_x509_certificate(der) {
-            Ok((_, cert)) => findings.extend(signature_finding(&cert, position)),
+        match parse_entry(der) {
+            Ok(cert) => findings.extend(signature_finding(&cert, position)),
             Err(e) => findings.push(Finding::new(
                 "cert.unparsable",
                 Severity::High,
@@ -65,6 +65,16 @@ pub fn certificate_findings(chain: &[Vec<u8>], host: Option<&str>, now: i64) -> 
         }
     }
     findings
+}
+
+/// Parses one chain entry, which must be exactly one DER certificate
+/// (RFC 8446 §4.4.2 `cert_data`); trailing bytes are an error.
+fn parse_entry(der: &[u8]) -> Result<X509Certificate<'_>, String> {
+    match parse_x509_certificate(der) {
+        Ok(([], cert)) => Ok(cert),
+        Ok((rest, _)) => Err(format!("{} trailing bytes", rest.len())),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// Expired, not yet valid, or soon-to-expire leaf certificate.
@@ -410,6 +420,20 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].id, "cert.unparsable");
         assert!(findings[0].message.starts_with("chain certificate #1 "));
+    }
+
+    /// Trailing bytes after a certificate make it unparsable.
+    #[test]
+    fn trailing_bytes() {
+        let mut leaf = EC_LOCALHOST.to_vec();
+        leaf.push(0);
+        assert_eq!(ids_of(&[leaf.clone()]), ["cert.unparsable"]);
+        let findings = certificate_findings(&[EC_LOCALHOST.to_vec(), leaf], None, MID_2026);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].message,
+            "chain certificate #1 cannot be parsed: 1 trailing bytes"
+        );
     }
 
     /// Empty and garbage chains.
