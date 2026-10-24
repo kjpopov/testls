@@ -53,7 +53,7 @@ Two connection paths:
 - [x] Cipher enumeration per protocol (iterative removal) + server preference
 - [x] Certificate: chain, expiry, hostname/SAN, key type/size, sig algorithm,
       trust against webpki-roots or a `--ca-file` bundle
-- [ ] `--system-roots`: trust the operating system's root store
+- [x] `--system-roots`: trust the operating system's root store
 - [x] Output: coloured, TTY-aware text (`--color auto|always|never`)
 - [x] Output: JSON (`--format json`, versioned schema in [json-schema.md](json-schema.md))
 - [x] Exit codes: 0 ok, 1 findings ≥ `--fail-on` (default `high`), 2 scan error
@@ -127,4 +127,5 @@ Two connection paths:
 | 21 | Actions are pinned to full commit SHAs with the tag in a comment; workflows default to `contents: read` and checkout does not persist credentials; `zizmor` gates workflow changes | A moved tag or compromised action cannot change what CI runs; jobs cannot push with the token they were given |
 | 22 | Coverage comes from `cargo llvm-cov` on Linux, including the integration tests; it is published as a job summary and lcov artifact, without a third-party service, token or failing threshold | The CLI is only exercised end to end, so unit tests alone under-report it; a hard threshold would block small PRs for noise |
 | 23 | Fuzz targets live in a standalone `fuzz/` crate (own lockfile, nightly only) and run with libFuzzer for a short time in CI, only when `testls-wire`, `fuzz/` or the root `Cargo.toml` change, plus a longer weekly run; no corpus is committed yet | Parsers of untrusted network input are the riskiest code; keeping nightly out of the workspace leaves the stable and MSRV builds unaffected |
+| 24 | `--system-roots` loads the OS store with `rustls-native-certs` (keychain, Windows store, OpenSSL bundle; `SSL_CERT_FILE`/`SSL_CERT_DIR` override); certificates webpki cannot use as anchors are skipped, partial load errors are printed as warnings, and only an empty result is a scan error; it conflicts with `--ca-file` | Maintained rustls-ecosystem crate with no OpenSSL link; real system stores contain odd roots that must not break the whole scan |
 | 25 | Every CI check is required on `main` (`protectmain` ruleset). Workflows that only matter for some files (`zizmor`, `fuzz`) still run on every pull request and skip their work in a step instead of using `paths:` filters; CI and coverage cancel superseded pull request runs; cargo commands run with `--locked` | A path-filtered required check never reports and blocks unrelated PRs; `--locked` catches a stale `Cargo.lock` on the PR instead of at release time |

@@ -2,7 +2,8 @@
 //!
 //! Path building and verification are done by `rustls-webpki` against a
 //! [`TrustStore`], which defaults to the Mozilla root program as shipped in
-//! `webpki-roots`. Validity, host name, key, and signature problems of the
+//! `webpki-roots` and can instead hold the operating system's roots or a
+//! custom bundle. Validity, host name, key, and signature problems of the
 //! leaf are reported by [`certificate_findings`](crate::certificate_findings)
 //! and not repeated here.
 
@@ -68,6 +69,54 @@ impl TrustStore {
             return Err("no certificates found".to_owned());
         }
         Self::from_certificates(certificates.iter().map(AsRef::as_ref))
+    }
+
+    /// The operating system's trust store, as read by `rustls-native-certs`:
+    /// the keychain on macOS, the certificate store on Windows, and the
+    /// OpenSSL bundle elsewhere. `SSL_CERT_FILE` and `SSL_CERT_DIR` override
+    /// the platform store when set.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message if no usable root certificate could be loaded.
+    /// Otherwise the store comes with any partial load errors, which the
+    /// caller should surface as warnings.
+    pub fn system() -> Result<(Self, Vec<String>), String> {
+        let loaded = rustls_native_certs::load_native_certs();
+        let errors = loaded.errors.iter().map(ToString::to_string).collect();
+        Self::from_system_certificates(loaded.certs.iter().map(AsRef::as_ref), errors)
+    }
+
+    /// Builds a store from the certificates and load errors reported for
+    /// the system store.
+    ///
+    /// System stores can hold certificates that are not usable trust anchors
+    /// (for example with unsupported extensions); those are skipped instead
+    /// of failing the whole store. Partial load errors are handed back
+    /// alongside the store so they can be reported.
+    fn from_system_certificates<'a>(
+        certificates: impl IntoIterator<Item = &'a [u8]>,
+        errors: Vec<String>,
+    ) -> Result<(Self, Vec<String>), String> {
+        let anchors: Vec<_> = certificates
+            .into_iter()
+            .filter_map(|der| {
+                webpki::anchor_from_trusted_cert(&CertificateDer::from(der))
+                    .ok()
+                    .map(|anchor| anchor.to_owned())
+            })
+            .collect();
+        if !anchors.is_empty() {
+            return Ok((Self { anchors }, errors));
+        }
+        match errors.as_slice() {
+            [] => Err("no usable root certificates found".to_owned()),
+            [e] => Err(format!("no usable root certificates: {e}")),
+            [e, rest @ ..] => Err(format!(
+                "no usable root certificates: {e} (+{} more)",
+                rest.len()
+            )),
+        }
     }
 
     /// Number of trust anchors in the store.
@@ -273,6 +322,43 @@ mod tests {
         assert!(!TrustStore::webpki().is_empty());
         assert_eq!(test_store().len(), 1);
         assert!(TrustStore::from_certificates([b"garbage".as_slice()]).is_err());
+    }
+
+    /// The system store skips unusable certificates and fails only when no
+    /// anchor is left, quoting the first load error if there is one.
+    /// Partial load errors come back as warnings next to the store.
+    #[test]
+    fn system_store_from_certificates() {
+        let (store, warnings) =
+            TrustStore::from_system_certificates([b"garbage".as_slice(), ROOT], Vec::new())
+                .unwrap();
+        assert_eq!(store.len(), 1);
+        assert_eq!(warnings, Vec::<String>::new());
+        assert_eq!(messages(&[LEAF, INTERMEDIATE], MID_2026, &store), NONE);
+
+        let (partial, warnings) =
+            TrustStore::from_system_certificates([ROOT], vec!["unreadable file".to_owned()])
+                .unwrap();
+        assert_eq!(partial.len(), 1);
+        assert_eq!(warnings, ["unreadable file"]);
+
+        assert_eq!(
+            TrustStore::from_system_certificates([b"garbage".as_slice()], Vec::new()).unwrap_err(),
+            "no usable root certificates found"
+        );
+        assert_eq!(
+            TrustStore::from_system_certificates([], vec!["permission denied".to_owned()])
+                .unwrap_err(),
+            "no usable root certificates: permission denied"
+        );
+        assert_eq!(
+            TrustStore::from_system_certificates(
+                [],
+                vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]
+            )
+            .unwrap_err(),
+            "no usable root certificates: a (+2 more)"
+        );
     }
 
     /// PEM bundles load every certificate and reject empty input.

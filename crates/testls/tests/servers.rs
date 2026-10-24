@@ -199,6 +199,76 @@ fn bad_ca_file_is_scan_error() {
     assert!(stderr.contains("cannot load"), "{stderr}");
 }
 
+/// `--system-roots` trusts the operating system's store; `SSL_CERT_FILE`
+/// replaces that store, so pointing it at the test CA makes the chain
+/// trusted without touching the machine's roots.
+#[test]
+#[ignore = "needs tests/servers running"]
+fn system_roots_trust_ssl_cert_file() {
+    let addr = "127.0.0.1:14434";
+    wait_for(addr);
+    let out = Command::new(env!("CARGO_BIN_EXE_testls"))
+        .args([addr, "--system-roots", "--fail-on", "info"])
+        .env("SSL_CERT_FILE", CA_FILE)
+        .env_remove("SSL_CERT_DIR")
+        .output()
+        .expect("run testls");
+    let stdout = String::from_utf8(out.stdout).expect("utf-8 output");
+    assert!(!stdout.contains("not trusted"), "{stdout}");
+    assert_eq!(out.status.code(), Some(0), "{stdout}");
+}
+
+/// A system store with no usable roots is a scan error (exit code 2),
+/// reported before any connection is made.
+#[test]
+fn empty_system_roots_is_scan_error() {
+    let out = Command::new(env!("CARGO_BIN_EXE_testls"))
+        .args(["127.0.0.1:1", "--system-roots"])
+        .env("SSL_CERT_FILE", "/nonexistent/ca.pem")
+        .env_remove("SSL_CERT_DIR")
+        .output()
+        .expect("run testls");
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8(out.stderr).expect("utf-8 output");
+    assert!(stderr.contains("cannot load system roots"), "{stderr}");
+}
+
+/// `--system-roots` and `--ca-file` select different stores and cannot be
+/// combined.
+#[test]
+fn system_roots_conflicts_with_ca_file() {
+    let out = Command::new(env!("CARGO_BIN_EXE_testls"))
+        .args(["127.0.0.1:1", "--system-roots", "--ca-file", CA_FILE])
+        .env_remove("SSL_CERT_FILE")
+        .env_remove("SSL_CERT_DIR")
+        .output()
+        .expect("run testls");
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8(out.stderr).expect("utf-8 output");
+    assert!(stderr.contains("cannot be used with"), "{stderr}");
+}
+
+/// With no `SSL_CERT_*` override the platform store itself must load; the
+/// closed port then yields the usual scan error rather than a store error.
+/// A machine without any CA bundle (a minimal container) may report an empty
+/// store, but no other loader error is accepted.
+#[test]
+fn platform_system_roots_load() {
+    let out = Command::new(env!("CARGO_BIN_EXE_testls"))
+        .args(["127.0.0.1:1", "--system-roots"])
+        .env_remove("SSL_CERT_FILE")
+        .env_remove("SSL_CERT_DIR")
+        .output()
+        .expect("run testls");
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8(out.stderr).expect("utf-8 output");
+    let empty_store = stderr.contains("cannot load system roots: no usable root certificates");
+    assert!(
+        empty_store || !stderr.contains("cannot load system roots"),
+        "{stderr}"
+    );
+}
+
 /// A closed port must be reported as a scan error (exit code 2). Port 1 on
 /// loopback is closed, so no server is needed.
 #[test]

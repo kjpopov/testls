@@ -53,6 +53,12 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     ca_file: Option<PathBuf>,
 
+    /// Trust the operating system's root certificates instead of the
+    /// bundled Mozilla roots (`SSL_CERT_FILE` / `SSL_CERT_DIR` override the
+    /// platform store).
+    #[arg(long, conflicts_with = "ca_file")]
+    system_roots: bool,
+
     /// Colour the output: `auto` colours only on a terminal when `NO_COLOR`
     /// is unset.
     #[arg(long, default_value_t = ColorChoice::Auto, value_name = "WHEN",
@@ -96,18 +102,12 @@ async fn main() -> ExitCode {
         cli.color != ColorChoice::Never && colour_terminal(),
         std::env::var("NO_COLOR").ok().as_deref(),
     ));
-    let store = match &cli.ca_file {
-        Some(path) => match std::fs::read(path)
-            .map_err(|e| e.to_string())
-            .and_then(|pem| TrustStore::from_pem(&pem))
-        {
-            Ok(store) => store,
-            Err(e) => {
-                eprintln!("error: cannot load {}: {e}", path.display());
-                return ExitCode::from(2);
-            }
-        },
-        None => TrustStore::webpki(),
+    let store = match trust_store(&cli) {
+        Ok(store) => store,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
     };
     let addr = match resolve(&cli.target).await {
         Ok(a) => a,
@@ -183,6 +183,27 @@ async fn main() -> ExitCode {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+/// Loads the trust store selected on the command line: a `--ca-file`
+/// bundle, the system roots, or the bundled Mozilla roots. Partial errors
+/// while reading the system roots are printed as warnings.
+fn trust_store(cli: &Cli) -> Result<TrustStore, String> {
+    if let Some(path) = &cli.ca_file {
+        std::fs::read(path)
+            .map_err(|e| e.to_string())
+            .and_then(|pem| TrustStore::from_pem(&pem))
+            .map_err(|e| format!("cannot load {}: {e}", path.display()))
+    } else if cli.system_roots {
+        let (store, warnings) =
+            TrustStore::system().map_err(|e| format!("cannot load system roots: {e}"))?;
+        for warning in warnings {
+            eprintln!("warning: system roots: {warning}");
+        }
+        Ok(store)
+    } else {
+        Ok(TrustStore::webpki())
     }
 }
 

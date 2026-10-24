@@ -9,6 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+rustls-native-certs.workspace = true
 rustls-pki-types.workspace = true
 rustls-webpki.workspace = true
 testls-data.workspace = true
