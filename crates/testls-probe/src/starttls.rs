@@ -601,6 +601,7 @@ fn expect(reply: &Reply, code: u16, step: &str) -> Result<(), ProbeError> {
         return Ok(());
     }
     let text = reply.lines.first().map_or("", String::as_str);
+    let text = text.escape_debug();
     Err(error(format!(
         "server answered {step} with {} {text}",
         reply.code
@@ -1031,6 +1032,19 @@ mod tests {
             };
             assert!(e.to_string().contains("exceeds"), "{e}");
         }
+    }
+
+    /// SMTP and FTP refusal diagnostics escape terminal control characters.
+    #[test]
+    fn refusal_controls_are_escaped() {
+        let reply = Reply {
+            code: 500,
+            lines: vec!["bad \x1b[2J\rhidden".into()],
+        };
+        let error = expect(&reply, 220, "greeting").unwrap_err().to_string();
+        assert!(!error.contains('\x1b'));
+        assert!(!error.contains('\r'));
+        assert!(error.contains("\\u{1b}"));
     }
 
     /// Runs `protocol` against each script and checks the error mentions

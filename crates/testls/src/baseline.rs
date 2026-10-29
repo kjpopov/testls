@@ -1,26 +1,26 @@
 //! `--baseline`: a previous JSON report whose findings are accepted.
 //!
 //! A finding is known when the baseline has a document for the same target
-//! input (as given on the command line) with a finding of the same id. The
+//! input (as given on the command line) with a finding of the same id and equal or greater severity. The
 //! message is ignored because its wording may change. Findings that were
 //! suppressed in the baseline are not known, so expiring a suppression is
 //! not undone by the baseline.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::Path;
 
 use serde::Deserialize;
-use testls_checks::Finding;
+use testls_checks::{Finding, Severity};
 use testls_report::json::{SCHEMA_VERSION, Suppressed};
 
 /// Reason attached to findings set aside because the baseline has them.
 pub const REASON: &str = "in baseline";
 
-/// Known `(target input, finding id)` pairs.
+/// Highest accepted severity for each `(target input, finding id)` pair.
 #[derive(Debug, Default)]
 pub struct Baseline {
-    /// Pairs from every document in the file.
-    known: HashSet<(String, String)>,
+    /// Accepted severities from every document in the file.
+    known: HashMap<(String, String), Severity>,
 }
 
 /// The parts of a JSON report document the baseline needs.
@@ -58,7 +58,7 @@ struct DocumentTarget {
 
 /// One entry of `findings` in a report document.
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)] // `severity` and `message` are only checked for presence
+#[allow(dead_code)] // `message` is only checked for presence
 struct DocumentFinding {
     /// Finding id.
     id: String,
@@ -85,7 +85,7 @@ impl Baseline {
             serde_json::from_value(value).map(|d| vec![d])
         }
         .map_err(|e| format!("not a testls JSON report: {e}"))?;
-        let mut known = HashSet::new();
+        let mut known = HashMap::new();
         for d in documents {
             if d.tool.name != "testls" {
                 return Err(format!(
@@ -100,15 +100,26 @@ impl Baseline {
                 ));
             }
             for f in d.findings {
-                known.insert((d.target.input.clone(), f.id));
+                let severity: Severity = f
+                    .severity
+                    .parse()
+                    .map_err(|e| format!("invalid baseline severity: {e}"))?;
+                known
+                    .entry((d.target.input.clone(), f.id))
+                    .and_modify(|old| *old = std::cmp::max(*old, severity))
+                    .or_insert(severity);
             }
         }
         Ok(Self { known })
     }
 
     /// Whether the baseline has `id` for `target`.
-    fn contains(&self, target: &str, id: &str) -> bool {
-        self.known.contains(&(target.to_owned(), id.to_owned()))
+    fn contains(&self, target: &str, id: &str, severity: Severity) -> bool {
+        !matches!(id.rsplit('.').next(), Some("error" | "incomplete"))
+            && self
+                .known
+                .get(&(target.to_owned(), id.to_owned()))
+                .is_some_and(|old| severity <= *old)
     }
 
     /// Splits `findings` of `target` into new ones and known ones, the
@@ -116,7 +127,7 @@ impl Baseline {
     pub fn apply(&self, target: &str, findings: Vec<Finding>) -> (Vec<Finding>, Vec<Suppressed>) {
         let (known, new): (Vec<_>, Vec<_>) = findings
             .into_iter()
-            .partition(|f| self.contains(target, &f.id));
+            .partition(|f| self.contains(target, &f.id, f.severity));
         let known = known
             .into_iter()
             .map(|finding| Suppressed {
@@ -138,7 +149,7 @@ mod tests {
 
     /// Builds a finding with `id`.
     fn finding(id: &str) -> Finding {
-        Finding::new(id, Severity::Medium, "msg")
+        Finding::new(id, Severity::Low, "msg")
     }
 
     /// A minimal report document for `input` with finding `ids`.
@@ -176,8 +187,29 @@ mod tests {
             document("b.example", &["hsts.missing"])
         ))
         .expect("valid");
-        assert!(many.contains("b.example", "hsts.missing"));
-        assert!(!many.contains("a.example", "hsts.missing"));
+        assert!(many.contains("b.example", "hsts.missing", Severity::Low));
+        assert!(!many.contains("a.example", "hsts.missing", Severity::Low));
+    }
+
+    /// Baselines cannot hide worsening findings or accept unknown severities.
+    #[test]
+    fn severity_escalation() {
+        for (id, severity) in [("protocol.ssl3", "info"), ("dh.weak", "medium")] {
+            let baseline = Baseline::parse(&document("a", &[id]).replace("low", severity)).unwrap();
+            let (new, known) =
+                baseline.apply("a", vec![Finding::new(id, Severity::High, "worsened")]);
+            assert_eq!(new.len(), 1);
+            assert_eq!(known.len(), 0);
+        }
+        let baseline =
+            Baseline::parse(&document("a", &["cert.error", "policy.incomplete"])).unwrap();
+        let (new, known) = baseline.apply(
+            "a",
+            vec![finding("cert.error"), finding("policy.incomplete")],
+        );
+        assert_eq!(new.len(), 2);
+        assert_eq!(known.len(), 0);
+        assert!(Baseline::parse(&document("a", &["x"]).replace("low", "nonsense")).is_err());
     }
 
     /// Non-JSON, foreign JSON and other schema versions are rejected.

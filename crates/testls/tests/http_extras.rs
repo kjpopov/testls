@@ -580,7 +580,7 @@ fn policy_reports_deviations() {
         "--policy",
         "mozilla-intermediate",
     ]);
-    assert_eq!(code, Some(0));
+    assert_eq!(code, Some(2));
     assert!(
         findings.iter().any(|(id, m)| id == "policy.incomplete"
             && m.contains("key exchange groups, HSTS not measured")),

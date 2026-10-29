@@ -116,6 +116,17 @@ echo 1000 > crlnumber
     -out crl-responder.pem 2>/dev/null
 "$openssl" crl -in crl-responder.pem -outform DER -out crl-responder.der
 
+# A correctly signed CRL limited to a different named distribution point.
+cat >> ca.cnf <<'EOF'
+[partition]
+issuingDistributionPoint=critical,@partition_idp
+[partition_idp]
+fullname=URI:http://crl.example.test/other-partition.crl
+EOF
+"$openssl" ca -config ca.cnf -gencrl -crlexts partition -keyfile ca.key -cert ca.pem \
+    -out crl-partition.pem 2>/dev/null
+"$openssl" crl -in crl-partition.pem -outform DER -out crl-partition.der
+
 # The request openssl builds for leaf, to compare with ours.
 cp good.req request.der
 
@@ -124,7 +135,7 @@ for cert in ca leaf other stray must-staple urls; do
     cp "$cert.der" "$out/ocsp-$cert.der"
 done
 for response in good revoked delegated unknown unauthorized no-digital-signature \
-    crl crl-responder request; do
+    crl crl-responder crl-partition request; do
     cp "$response.der" "$out/ocsp-$response.der"
 done
 echo "wrote OCSP fixtures to $out"

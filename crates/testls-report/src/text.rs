@@ -57,8 +57,9 @@ pub struct CertificateSection {
 #[must_use]
 pub fn header(target: &str, addr: SocketAddr, sni: Option<&str>) -> String {
     format!(
-        "Target: {target} ({addr})\nSNI:    {}\n",
-        sni.unwrap_or("(none)")
+        "Target: {} ({addr})\nSNI:    {}\n",
+        printable(target),
+        printable(sni.unwrap_or("(none)"))
     )
 }
 
@@ -70,7 +71,10 @@ pub fn protocols(results: &[ProtocolResult], paint: Painter) -> String {
         let status = match &r.support {
             ProtocolSupport::Supported => paint.severity(protocol_severity(r.version).0, "offered"),
             ProtocolSupport::NotSupported => "not offered".to_owned(),
-            ProtocolSupport::Error(e) => format!("error: {e}"),
+            ProtocolSupport::Error(e) => {
+                let e = printable(e);
+                format!("error: {e}")
+            }
         };
         let _ = writeln!(out, "  {:<8} {status}", r.version.to_string());
     }
@@ -84,7 +88,10 @@ pub fn ciphers(section: &CipherSection, paint: Painter) -> String {
     let heading = paint.heading(&format!("Ciphers {version}"));
     let c = match &section.outcome {
         Ok(c) => c,
-        Err(e) => return format!("{heading}: error: {e}\n"),
+        Err(e) => {
+            let e = printable(e);
+            return format!("{heading}: error: {e}\n");
+        }
     };
     let mut out = match c.order {
         CipherOrder::Server => format!("{heading} server order\n"),
@@ -109,7 +116,10 @@ pub fn key_exchange(section: &KeyExchangeSection, paint: Painter) -> String {
     let heading = paint.heading(&format!("Key exchange {}", section.version));
     let k = match &section.outcome {
         Ok(k) => k,
-        Err(e) => return format!("{heading}: error: {e}\n"),
+        Err(e) => {
+            let e = printable(e);
+            return format!("{heading}: error: {e}\n");
+        }
     };
     let mut out = match k.group_order {
         CipherOrder::Server => format!("{heading} server order\n"),
@@ -135,7 +145,10 @@ pub fn key_exchange(section: &KeyExchangeSection, paint: Painter) -> String {
 pub fn certificate(section: &Result<CertificateSection, String>, paint: Painter) -> String {
     let chain = match section {
         Ok(chain) => chain,
-        Err(e) => return format!("{}: error: {e}\n", paint.heading("Certificate")),
+        Err(e) => {
+            let e = printable(e);
+            return format!("{}: error: {e}\n", paint.heading("Certificate"));
+        }
     };
     let mut out = format!(
         "{}\n",
@@ -163,7 +176,7 @@ pub fn certificate(section: &Result<CertificateSection, String>, paint: Painter)
                 }
             }
             Err(e) => {
-                let _ = writeln!(out, "  #{position} cannot be parsed: {e}");
+                let _ = writeln!(out, "  #{position} cannot be parsed: {}", printable(e));
             }
         }
     }
@@ -194,7 +207,10 @@ fn ocsp_line(ocsp: Option<&Result<OcspStatus, String>>, paint: Painter) -> Strin
             ),
             CertStatus::Unknown => paint.severity(Severity::Medium, "unknown to the responder"),
         },
-        Err(e) => paint.severity(Severity::Medium, &format!("invalid: {e}")),
+        Err(e) => {
+            let e = printable(e);
+            paint.severity(Severity::Medium, &format!("invalid: {e}"))
+        }
     }
 }
 
@@ -204,7 +220,10 @@ fn ocsp_line(ocsp: Option<&Result<OcspStatus, String>>, paint: Painter) -> Strin
 pub fn revocation(section: &Result<Vec<RevocationCheck>, String>, paint: Painter) -> String {
     let checks = match section {
         Ok(checks) => checks,
-        Err(e) => return format!("{}: error: {e}\n", paint.heading("Revocation")),
+        Err(e) => {
+            let e = printable(e);
+            return format!("{}: error: {e}\n", paint.heading("Revocation"));
+        }
     };
     let mut out = format!("{}\n", paint.heading("Revocation"));
     if checks.is_empty() {
@@ -229,7 +248,10 @@ pub fn revocation(section: &Result<Vec<RevocationCheck>, String>, paint: Painter
                 ),
                 CertStatus::Unknown => paint.severity(Severity::Medium, "unknown"),
             },
-            Err(e) => format!("error: {e}"),
+            Err(e) => {
+                let e = printable(e);
+                format!("error: {e}")
+            }
         };
         let _ = writeln!(
             out,
@@ -270,7 +292,10 @@ pub(crate) const SECURITY_HEADERS: [&str; 5] = [
 pub fn http(section: &Result<HttpResponse, String>, paint: Painter) -> String {
     let response = match section {
         Ok(r) => r,
-        Err(e) => return format!("{}: error: {e}\n", paint.heading("HTTP headers")),
+        Err(e) => {
+            let e = printable(e);
+            return format!("{}: error: {e}\n", paint.heading("HTTP headers"));
+        }
     };
     let mut out = format!(
         "{}\n",
@@ -343,7 +368,7 @@ pub fn vulnerabilities(list: &[Vulnerability], paint: Painter) -> String {
             VulnStatus::NotTested => label,
         };
         let id = v.finding.map(|f| format!(" [{f}]")).unwrap_or_default();
-        let _ = writeln!(out, "  {:<30} {label} {}{id}", v.name, v.detail);
+        let _ = writeln!(out, "  {:<30} {label} {}{id}", v.name, printable(&v.detail));
     }
     out
 }
@@ -367,7 +392,10 @@ pub(crate) const INTOLERANCE_TESTS: [IntoleranceTest; 5] = [
 pub fn intolerance(section: &Result<Intolerance, String>, paint: Painter) -> String {
     let result = match section {
         Ok(result) => result,
-        Err(e) => return format!("{}: error: {e}\n", paint.heading("ClientHello tolerance")),
+        Err(e) => {
+            let e = printable(e);
+            return format!("{}: error: {e}\n", paint.heading("ClientHello tolerance"));
+        }
     };
     let heading = match result.version {
         Some(v) => format!("ClientHello tolerance {v}"),
@@ -391,7 +419,10 @@ pub fn intolerance(section: &Result<Intolerance, String>, paint: Painter) -> Str
 pub fn details(section: &Result<HandshakeDetails, String>, paint: Painter) -> String {
     let result = match section {
         Ok(result) => result,
-        Err(e) => return format!("{}: error: {e}\n", paint.heading("Handshake details")),
+        Err(e) => {
+            let e = printable(e);
+            return format!("{}: error: {e}\n", paint.heading("Handshake details"));
+        }
     };
     let legacy = result
         .legacy_version
@@ -482,8 +513,8 @@ pub fn findings(findings: &[Finding], paint: Painter) -> String {
             out,
             "  {} {} [{}]",
             paint.severity(f.severity, &label),
-            f.message,
-            f.id
+            printable(&f.message),
+            printable(&f.id)
         );
     }
     out
@@ -503,9 +534,9 @@ pub fn suppressed(suppressed: &[Suppressed], paint: Painter) -> String {
             out,
             "  {:<8} {} [{}] ({})",
             f.severity.as_str(),
-            f.message,
+            printable(&f.message),
             f.id,
-            s.reason
+            printable(&s.reason)
         );
     }
     out
@@ -531,6 +562,19 @@ mod tests {
     use testls_checks::{RevocationMethod, RevocationStatus};
 
     use super::*;
+
+    /// Untrusted diagnostic controls cannot execute in either colour mode.
+    #[test]
+    fn escapes_terminal_controls() {
+        let attack = "server \x1b[2J\rforged\nline";
+        for paint in [Painter::new(false), Painter::new(true)] {
+            let section = certificate(&Err(attack.to_owned()), paint);
+            assert!(!section.contains("\x1b[2J"));
+            assert!(section.contains("\\u{1b}[2J\\rforged\\nline"));
+            let output = findings(&[Finding::new("test", Severity::High, attack)], paint);
+            assert!(!output.contains("\x1b[2J"));
+        }
+    }
 
     /// Painter without colour, for exact text comparisons.
     const PLAIN: Painter = Painter::new(false);

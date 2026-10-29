@@ -37,7 +37,7 @@ pub async fn check_revocation(
     let mut checks = Vec::new();
     let ocsp = Fetcher {
         max_body: MAX_OCSP_RESPONSE,
-        ..fetcher
+        ..fetcher.clone()
     };
     for url in urls.ocsp.iter().filter(|u| is_http(u)).take(MAX_URLS) {
         let outcome = match ocsp_request(chain) {
@@ -120,6 +120,7 @@ mod tests {
             max_body: 0,
             source: None,
             proxy: None,
+            allowed_endpoints: vec![],
         }
     }
 
@@ -181,7 +182,16 @@ mod tests {
             ocsp: vec![format!("http://{addr}/ocsp")],
             crl: vec!["http://127.0.0.1:9/never.crl".into()],
         };
-        let checks = check_revocation(fetcher(), &[LEAF.to_vec(), CA.to_vec()], &urls, now()).await;
+        let checks = check_revocation(
+            Fetcher {
+                allowed_endpoints: vec![addr],
+                ..fetcher()
+            },
+            &[LEAF.to_vec(), CA.to_vec()],
+            &urls,
+            now(),
+        )
+        .await;
         assert_eq!(server.await.unwrap(), "POST /ocsp HTTP/1.1");
         assert_eq!(checks.len(), 1);
         assert_eq!(checks[0].method, RevocationMethod::Ocsp);
@@ -201,7 +211,16 @@ mod tests {
                 format!("HTTP://{crl_addr}/ca.crl"),
             ],
         };
-        let checks = check_revocation(fetcher(), &[LEAF.to_vec(), CA.to_vec()], &urls, now()).await;
+        let checks = check_revocation(
+            Fetcher {
+                allowed_endpoints: vec![ocsp_addr, crl_addr],
+                ..fetcher()
+            },
+            &[LEAF.to_vec(), CA.to_vec()],
+            &urls,
+            now(),
+        )
+        .await;
         assert_eq!(ocsp_server.await.unwrap(), "POST / HTTP/1.1");
         assert_eq!(crl_server.await.unwrap(), "GET /ca.crl HTTP/1.1");
         assert_eq!(checks.len(), 2);

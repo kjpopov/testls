@@ -17,7 +17,7 @@ use crate::ProbeError;
 use crate::http::{HttpResponse, complete_head, parse_head};
 
 /// Settings for requests to revocation endpoints.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Fetcher {
     /// TCP connect timeout, applied to each resolved address.
     pub connect_timeout: Duration,
@@ -28,9 +28,12 @@ pub struct Fetcher {
     /// Local address to connect from; the OS picks one when `None`.
     /// Resolved addresses of the other family are skipped.
     pub source: Option<IpAddr>,
-    /// HTTP proxy to tunnel through with `CONNECT`; the proxy then
-    /// resolves the host name. Direct when `None`.
+    /// HTTP proxy to tunnel through with `CONNECT` to a validated IP.
+    /// Direct when `None`.
     pub proxy: Option<SocketAddr>,
+    /// Explicitly permitted additional destinations, including private IPs or
+    /// nonstandard ports. Otherwise only public addresses on port 80 are used.
+    pub allowed_endpoints: Vec<SocketAddr>,
 }
 
 /// Reply to a [`Fetcher`] request.
@@ -105,15 +108,6 @@ impl Fetcher {
     /// Connects to the first reachable address of the URL's host, or opens
     /// a tunnel to it through the proxy.
     async fn connect(&self, url: &HttpUrl) -> Result<TcpStream, ProbeError> {
-        if let Some(proxy) = self.proxy {
-            let host = if url.host.contains(':') {
-                format!("[{}]", url.host)
-            } else {
-                url.host.clone()
-            };
-            let authority = format!("{host}:{}", url.port);
-            return crate::tunnel(proxy, self.source, self.connect_timeout, &authority).await;
-        }
         let addrs = timeout(
             self.connect_timeout,
             tokio::net::lookup_host((url.host.as_str(), url.port)),
@@ -124,11 +118,24 @@ impl Fetcher {
         let mut last = None;
         let mut skipped = false;
         for addr in addrs {
+            if !self.allowed_endpoints.contains(&addr)
+                && (addr.port() != 80 || !public_address(addr.ip()))
+            {
+                last = Some(ProbeError::Unexpected(
+                    "revocation destination blocked; use an explicit endpoint allowance",
+                ));
+                continue;
+            }
             if self.source.is_some_and(|ip| ip.is_ipv4() != addr.is_ipv4()) {
                 skipped = true;
                 continue;
             }
-            match crate::connect(addr, self.source, self.connect_timeout).await {
+            let result = if let Some(proxy) = self.proxy {
+                crate::tunnel(proxy, self.source, self.connect_timeout, &addr.to_string()).await
+            } else {
+                crate::connect(addr, self.source, self.connect_timeout).await
+            };
+            match result {
                 Ok(stream) => return Ok(stream),
                 Err(e) => last = Some(e),
             }
@@ -212,6 +219,31 @@ impl Fetcher {
                 return Err(too_large());
             }
             closed = read_more(stream, &mut buf, &mut data).await?;
+        }
+    }
+}
+
+/// Conservative public-unicast policy based on the IANA special-purpose
+/// registries. IPv6 transition mechanisms are excluded to avoid embedded
+/// private IPv4 destinations. Explicit endpoint allowances bypass this policy.
+fn public_address(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            let [a, b, c, _] = ip.octets();
+            !(matches!(a, 0 | 10 | 127 | 224..=255)
+                || (a == 100 && (64..=127).contains(&b))
+                || (a == 169 && b == 254)
+                || (a == 172 && (16..=31).contains(&b))
+                || (a == 192 && (b == 168 || b == 0 || (b == 88 && c == 99)))
+                || (a == 198 && (b == 18 || b == 19 || (b == 51 && c == 100)))
+                || (a == 203 && b == 0 && c == 113))
+        }
+        IpAddr::V6(ip) => {
+            let [a, b, ..] = ip.segments();
+            (0x2000..=0x3fff).contains(&a)
+                && !(a == 0x2001 && (b < 0x0200 || b == 0x0db8))
+                && a != 0x2002
+                && !(a == 0x3fff && b < 0x1000)
         }
     }
 }
@@ -448,7 +480,62 @@ mod tests {
             max_body: 1024,
             source: None,
             proxy: None,
+            allowed_endpoints: vec![],
         }
+    }
+
+    /// Special-purpose destinations are blocked, including IPv6 tunnels.
+    #[test]
+    fn public_destinations_only() {
+        for ip in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "0.0.0.0",
+            "224.0.0.1",
+            "192.0.2.1",
+            "198.18.0.1",
+            "::1",
+            "::ffff:127.0.0.1",
+            "fc00::1",
+            "fe80::1",
+            "2002:7f00:1::",
+            "2001:db8::1",
+            "64:ff9b::7f00:1",
+        ] {
+            assert!(!public_address(ip.parse().unwrap()), "{ip}");
+        }
+        for ip in ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"] {
+            assert!(public_address(ip.parse().unwrap()), "{ip}");
+        }
+    }
+
+    /// Disallowed addresses never open either a direct or proxy connection.
+    #[tokio::test]
+    async fn blocked_before_connect() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        for proxy in [None, Some(addr)] {
+            let fetcher = Fetcher { proxy, ..fetcher() };
+            let error = fetcher.get(&format!("http://{addr}/")).await.unwrap_err();
+            assert!(error.to_string().contains("destination blocked"));
+            assert!(
+                timeout(Duration::from_millis(20), listener.accept())
+                    .await
+                    .is_err()
+            );
+        }
+        assert!(
+            fetcher()
+                .get("http://8.8.8.8:25/")
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("destination blocked")
+        );
     }
 
     /// Starts a one-shot HTTP server that records the request and answers
@@ -491,10 +578,13 @@ mod tests {
                 .to_vec(),
         )
         .await;
-        let r = fetcher()
-            .get(&format!("http://{addr}/ca.crl"))
-            .await
-            .unwrap();
+        let r = Fetcher {
+            allowed_endpoints: vec![addr],
+            ..fetcher()
+        }
+        .get(&format!("http://{addr}/ca.crl"))
+        .await
+        .unwrap();
         assert_eq!(r.status, 200);
         assert_eq!(r.content_type.as_deref(), Some("application/pkix-crl"));
         assert_eq!(r.body, b"abc");
@@ -510,14 +600,17 @@ mod tests {
     #[tokio::test]
     async fn post_sends_body() {
         let (addr, task) = serve(b"HTTP/1.0 200 OK\r\n\r\nreply".to_vec()).await;
-        let r = fetcher()
-            .post(
-                &format!("http://{addr}"),
-                "application/ocsp-request",
-                b"\x30\x00",
-            )
-            .await
-            .unwrap();
+        let r = Fetcher {
+            allowed_endpoints: vec![addr],
+            ..fetcher()
+        }
+        .post(
+            &format!("http://{addr}"),
+            "application/ocsp-request",
+            b"\x30\x00",
+        )
+        .await
+        .unwrap();
         assert_eq!(r.body, b"reply");
         let request = task.await.unwrap();
         let text = String::from_utf8_lossy(&request);
@@ -536,7 +629,13 @@ mod tests {
                 .to_vec(),
         )
         .await;
-        let r = fetcher().get(&format!("http://{addr}/")).await.unwrap();
+        let r = Fetcher {
+            allowed_endpoints: vec![addr],
+            ..fetcher()
+        }
+        .get(&format!("http://{addr}/"))
+        .await
+        .unwrap();
         assert_eq!(r.body, b"abcde");
     }
 
@@ -556,7 +655,13 @@ mod tests {
         }
         reply.extend_from_slice(b"0\r\n\r\n");
         let (addr, _task) = serve(reply).await;
-        let r = fetcher.get(&format!("http://{addr}/")).await.unwrap();
+        let r = Fetcher {
+            allowed_endpoints: vec![addr],
+            ..fetcher
+        }
+        .get(&format!("http://{addr}/"))
+        .await
+        .unwrap();
         assert_eq!(r.body.len(), fetcher.max_body);
     }
 
@@ -596,7 +701,13 @@ mod tests {
     async fn error_status_is_returned() {
         let (addr, _task) =
             serve(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".to_vec()).await;
-        let r = fetcher().get(&format!("http://{addr}/")).await.unwrap();
+        let r = Fetcher {
+            allowed_endpoints: vec![addr],
+            ..fetcher()
+        }
+        .get(&format!("http://{addr}/"))
+        .await
+        .unwrap();
         assert_eq!(r.status, 404);
         assert_eq!(r.body, b"");
     }
@@ -607,12 +718,14 @@ mod tests {
     async fn source_address() {
         let (addr, _task) = serve(b"HTTP/1.1 204 No Content\r\n\r\n".to_vec()).await;
         let from_v4 = Fetcher {
+            allowed_endpoints: vec![addr],
             source: Some("127.0.0.1".parse().unwrap()),
             ..fetcher()
         };
         let r = from_v4.get(&format!("http://{addr}/")).await.unwrap();
         assert_eq!(r.status, 204);
         let from_v6 = Fetcher {
+            allowed_endpoints: vec![addr],
             source: Some("::1".parse().unwrap()),
             ..fetcher()
         };
@@ -623,7 +736,7 @@ mod tests {
         );
     }
 
-    /// With a proxy, the host name is sent unresolved in `CONNECT` and the
+    /// With a proxy, a validated IP is sent in `CONNECT` and the
     /// request goes through the tunnel.
     #[tokio::test]
     async fn through_proxy() {
@@ -650,17 +763,18 @@ mod tests {
         });
         let via_proxy = Fetcher {
             proxy: Some(proxy),
+            allowed_endpoints: vec!["127.0.0.1:8080".parse().unwrap()],
             ..fetcher()
         };
-        let r = via_proxy.get("http://ocsp.invalid:8080/x").await.unwrap();
+        let r = via_proxy.get("http://localhost:8080/x").await.unwrap();
         assert_eq!(r.status, 204);
         let seen = task.await.unwrap();
         assert!(
-            seen.starts_with("CONNECT ocsp.invalid:8080 HTTP/1.1\r\n"),
+            seen.starts_with("CONNECT 127.0.0.1:8080 HTTP/1.1\r\n"),
             "{seen}"
         );
         assert!(
-            seen.contains("GET /x HTTP/1.1\r\nHost: ocsp.invalid:8080\r\n"),
+            seen.contains("GET /x HTTP/1.1\r\nHost: localhost:8080\r\n"),
             "{seen}"
         );
     }
@@ -672,7 +786,13 @@ mod tests {
             b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nContent-Length: 3, 3\r\n\r\nabcd".to_vec(),
         )
         .await;
-        let r = fetcher().get(&format!("http://{addr}/")).await.unwrap();
+        let r = Fetcher {
+            allowed_endpoints: vec![addr],
+            ..fetcher()
+        }
+        .get(&format!("http://{addr}/"))
+        .await
+        .unwrap();
         assert_eq!(r.body, b"abc");
     }
 
@@ -693,7 +813,13 @@ mod tests {
                 s.write_all(reply).await.unwrap();
                 std::future::pending::<()>().await;
             });
-            let r = fetcher().get(&format!("http://{addr}/")).await.unwrap();
+            let r = Fetcher {
+                allowed_endpoints: vec![addr],
+                ..fetcher()
+            }
+            .get(&format!("http://{addr}/"))
+            .await
+            .unwrap();
             assert!(matches!(r.status, 204 | 304));
             assert_eq!(r.body, b"");
             server.abort();
@@ -729,7 +855,12 @@ mod tests {
             b"HTTP/1.1 200 OK\r\n".to_vec(),
         ] {
             let (addr, _task) = serve(reply.clone()).await;
-            let r = fetcher().get(&format!("http://{addr}/")).await;
+            let r = Fetcher {
+                allowed_endpoints: vec![addr],
+                ..fetcher()
+            }
+            .get(&format!("http://{addr}/"))
+            .await;
             assert!(
                 matches!(r, Err(ProbeError::Unexpected(_))),
                 "{:?}: {r:?}",

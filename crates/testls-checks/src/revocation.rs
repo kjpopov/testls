@@ -166,7 +166,8 @@ fn check_scope(crl: &CertificateRevocationList<'_>) -> Result<(), String> {
             let ParsedExtension::IssuingDistributionPoint(point) = ext.parsed_extension() else {
                 return Err("invalid Issuing Distribution Point extension".into());
             };
-            if point.only_contains_ca_certs
+            if point.distribution_point.is_some()
+                || point.only_contains_ca_certs
                 || point.only_contains_attribute_certs
                 || point.only_some_reasons.is_some()
                 || point.indirect_crl
@@ -290,6 +291,14 @@ pub fn revocation_findings(checks: &[RevocationCheck], now: i64) -> Vec<Finding>
 mod tests {
     use super::*;
     use crate::verify_ocsp_response;
+
+    /// A signed CRL for a named partition cannot establish a good status.
+    #[test]
+    fn rejects_partitioned_crl() {
+        let crl = include_bytes!("testdata/ocsp-crl-partition.der");
+        let error = verify_crl(crl, &chain(LEAF)).unwrap_err();
+        assert!(error.contains("only part"), "{error}");
+    }
 
     /// Self-signed test CA.
     const CA: &[u8] = include_bytes!("testdata/ocsp-ca.der");

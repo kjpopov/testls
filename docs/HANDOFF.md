@@ -62,3 +62,23 @@ still need a decision before grading.
   `gh run view RUN --log --job JOB | grep "<svc>-1"`.
 - CodeRabbit sometimes answers in issue comments or posts empty COMMENTED
   reviews; check both before assuming nothing changed.
+
+## Security audit fixes (2026-10-29)
+
+Branch: `fix/security-audit`, based on `c1a876e`. Six fixes: verify TLS 1.2/1.3
+handshake signatures; restrict certificate-directed HTTP requests to public
+port-80 endpoints with repeatable exact `--revocation-endpoint` allowances;
+reject named CRL scopes; exit 2 on incomplete required measurements/policies;
+preserve baseline severity escalations/errors; escape terminal diagnostics.
+Provider-unsupported ML-DSA-only handshakes now fail instead of accepting an
+unverified signature. Generated fixtures include a signed partitioned CRL.
+`wrong.key.der` is a deliberately unrelated, public test-only signing key.
+
+Validation: workspace tests 359 passed, 11 container tests ignored; stable
+Clippy with `-D warnings`; formatting; Rust 1.97.1 workspace check; cargo-deny
+(advisories, bans, licenses, sources) pass. Original CLI reproductions confirm
+exit 2 for partial scans, blocked loopback revocation, and escaped SMTP ANSI.
+Docker/Podman are unavailable here, so container integration remains for CI.
+Next decision-log number: 77. Contribution branch: `r4d1um/testls:fix/security-audit`;
+PR targets `kjpopov/testls:main`. Container integration and maintainer review
+remain required before merge.

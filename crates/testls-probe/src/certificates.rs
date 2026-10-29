@@ -1,8 +1,7 @@
 //! Certificate chain retrieval over a full rustls handshake.
 //!
-//! The verifier used here accepts every chain and signature: the goal is to
-//! record what the server presents, not to decide whether to trust it. Trust
-//! is evaluated later by the checks.
+//! The verifier accepts every chain but verifies handshake signatures. It
+//! records what the server presents; trust is evaluated later by the checks.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -114,15 +113,8 @@ fn config_with(verifier: Arc<AcceptAll>) -> ClientConfig {
         .with_no_client_auth()
 }
 
-/// ML-DSA signature schemes (IANA TLS `SignatureScheme` registry, 0x0904-0x0906).
-const ML_DSA_SCHEMES: [SignatureScheme; 3] = [
-    SignatureScheme::ML_DSA_44,
-    SignatureScheme::ML_DSA_65,
-    SignatureScheme::ML_DSA_87,
-];
-
-/// Verifier that accepts any certificate and handshake signature, and keeps
-/// the stapled OCSP response.
+/// Verifier that accepts certificate chains, verifies possession of the key,
+/// and records the stapled OCSP response.
 #[derive(Debug)]
 struct AcceptAll {
     /// Provider whose signature schemes are advertised.
@@ -169,40 +161,41 @@ impl ServerCertVerifier for AcceptAll {
         Ok(ServerCertVerified::assertion())
     }
 
-    /// Accepts any TLS 1.2 handshake signature.
+    /// Verifies the TLS 1.2 handshake signature with the leaf public key.
     fn verify_tls12_signature(
         &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        Ok(HandshakeSignatureValid::assertion())
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
     }
 
-    /// Accepts any TLS 1.3 handshake signature.
+    /// Verifies the TLS 1.3 handshake signature with the leaf public key.
     fn verify_tls13_signature(
         &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        Ok(HandshakeSignatureValid::assertion())
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
     }
 
-    /// Advertises every scheme the crypto provider knows plus ML-DSA, which
-    /// ring cannot verify but this verifier accepts anyway, so servers with
-    /// only an ML-DSA certificate still send their chain.
+    /// Advertises only schemes whose handshake signatures can be verified.
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        let mut schemes = self
-            .provider
+        self.provider
             .signature_verification_algorithms
-            .supported_schemes();
-        for scheme in ML_DSA_SCHEMES {
-            if !schemes.contains(&scheme) {
-                schemes.push(scheme);
-            }
-        }
-        schemes
+            .supported_schemes()
     }
 }
 
@@ -254,14 +247,66 @@ mod tests {
         addr
     }
 
-    /// ML-DSA schemes are advertised once, next to the provider's schemes.
+    /// Unverifiable algorithms are not negotiated.
     #[test]
-    fn advertises_ml_dsa() {
+    fn advertises_only_verifiable_schemes() {
         let schemes = AcceptAll::new().supported_verify_schemes();
-        for scheme in ML_DSA_SCHEMES {
-            assert_eq!(schemes.iter().filter(|s| **s == scheme).count(), 1);
+        assert_eq!(
+            schemes,
+            ring::default_provider()
+                .signature_verification_algorithms
+                .supported_schemes()
+        );
+        assert!(!schemes.contains(&SignatureScheme::ML_DSA_44));
+    }
+
+    /// Resolver deliberately bypassing the server builder's key-match check.
+    #[derive(Debug)]
+    struct WrongKey(Arc<rustls::sign::CertifiedKey>);
+
+    impl rustls::server::ResolvesServerCert for WrongKey {
+        /// Presents the test certificate with an unrelated signing key.
+        fn resolve(
+            &self,
+            _: rustls::server::ClientHello<'_>,
+        ) -> Option<Arc<rustls::sign::CertifiedKey>> {
+            Some(Arc::clone(&self.0))
         }
-        assert!(schemes.contains(&SignatureScheme::ECDSA_NISTP256_SHA256));
+    }
+
+    /// Both protocol versions reject a signature from the wrong private key.
+    #[tokio::test]
+    async fn rejects_wrong_handshake_key() {
+        let key =
+            PrivateKeyDer::try_from(include_bytes!("testdata/wrong.key.der").to_vec()).unwrap();
+        let key = ring::sign::any_supported_type(&key).unwrap();
+        let certified = Arc::new(rustls::sign::CertifiedKey::new(
+            vec![CertificateDer::from(CERT.to_vec())],
+            key,
+        ));
+        assert!(certified.keys_match().is_err());
+        for version in [&rustls::version::TLS12, &rustls::version::TLS13] {
+            let config = ServerConfig::builder_with_provider(Arc::new(ring::default_provider()))
+                .with_protocol_versions(&[version])
+                .unwrap()
+                .with_no_client_auth()
+                .with_cert_resolver(Arc::new(WrongKey(Arc::clone(&certified))));
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                TlsAcceptor::from(Arc::new(config))
+                    .accept(stream)
+                    .await
+                    .is_err()
+            });
+            assert!(
+                fetch_certificates(&Transport::new(addr), Some("localhost"))
+                    .await
+                    .is_err()
+            );
+            assert!(server.await.unwrap());
+        }
     }
 
     /// TLS 1.3 handshake returns the leaf certificate and version.

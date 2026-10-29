@@ -99,6 +99,11 @@ struct Cli {
     #[arg(long)]
     revocation: bool,
 
+    /// Permit this exact IP:port for revocation fetches in addition to public
+    /// HTTP endpoints on port 80. Use only for a trusted issuer endpoint.
+    #[arg(long, value_name = "IP:PORT")]
+    revocation_endpoint: Vec<SocketAddr>,
+
     /// How much to scan: `quick` checks protocols, cipher suites and the
     /// certificate only; `default` runs every probe of the target; `full`
     /// adds `--revocation` and `--all-addresses`.
@@ -568,6 +573,39 @@ struct Outcome {
 }
 
 impl Outcome {
+    /// Retains partial results while giving incomplete scans precedence over
+    /// the finding threshold in the process status and summary reports.
+    fn completed(
+        cli: &Cli,
+        (target, addr): (String, SocketAddr),
+        incomplete: bool,
+        findings: Vec<Finding>,
+        json: Option<String>,
+        profile: Profile,
+    ) -> Self {
+        let code = if incomplete {
+            2
+        } else {
+            u8::from(findings.iter().any(|f| f.severity >= cli.fail_on))
+        };
+        let failure = incomplete.then(|| junit::Failure {
+            target: target.clone(),
+            error: "required scan measurements are incomplete".to_owned(),
+        });
+        let findings = cli.format.is_summary().then_some(sarif::Scan {
+            target,
+            addr,
+            findings,
+        });
+        Self {
+            code,
+            json,
+            findings,
+            failure,
+            profile: Some(profile),
+        }
+    }
+
     /// A scan that failed before producing a report.
     fn failed(target: &Target, error: &str) -> Self {
         eprintln!("error: {target}: {error}");
@@ -630,9 +668,8 @@ async fn scan(
 
     let started_at = unix_now();
     let target = scan_target.to_string();
-    let is_text = cli.format == Format::Text;
     let show = |section: String| {
-        if is_text {
+        if cli.format == Format::Text {
             print!("{section}");
         }
     };
@@ -671,7 +708,12 @@ async fn scan(
     findings.extend(cert_findings);
 
     let revocation = if cli.revocation || cli.profile.full() {
-        let (section, more) = revocation_section(&transport, chain.as_deref()).await;
+        let (section, more) = revocation_section(
+            &transport,
+            chain.as_deref(),
+            cli.revocation_endpoint.clone(),
+        )
+        .await;
         show(format!("\n{}", text::revocation(&section, paint)));
         findings.extend(more);
         Some(section)
@@ -692,6 +734,7 @@ async fn scan(
     let measured_parts = (&protocols[..], &ciphers[..], &key_exchange[..]);
     findings.extend(policy_section(cli, measured_parts, chain.as_deref(), &http));
 
+    let incomplete = incomplete_scan(&protocols, &ciphers, &key_exchange, &certificate, &findings);
     let (findings, suppressed) = triage(findings, rules, scan_target, started_at);
     show(format!("\n{}", text::findings(&findings, paint)));
     show(text::suppressed(&suppressed, paint));
@@ -716,18 +759,34 @@ async fn scan(
             suppressed: &suppressed,
         })
     });
-    let finding_scan = cli.format.is_summary().then(|| sarif::Scan {
-        target: target.clone(),
-        addr,
-        findings: findings.clone(),
-    });
-    Outcome {
-        code: u8::from(findings.iter().any(|f| f.severity >= cli.fail_on)),
+    Outcome::completed(
+        cli,
+        (target, addr),
+        incomplete,
+        findings,
         json,
-        findings: finding_scan,
-        failure: None,
-        profile: Some(profile(&protocols, &ciphers, chain.as_deref())),
-    }
+        profile(&protocols, &ciphers, chain.as_deref()),
+    )
+}
+
+/// Required measurements must succeed even when errors are suppressed or below
+/// the finding threshold. Optional HTTP and profile-skipped probes do not count.
+fn incomplete_scan(
+    protocols: &[ProtocolResult],
+    ciphers: &[CipherSection],
+    key_exchange: &[KeyExchangeSection],
+    certificate: &Result<CertificateSection, String>,
+    findings: &[Finding],
+) -> bool {
+    protocols
+        .iter()
+        .any(|p| matches!(p.support, ProtocolSupport::Error(_)))
+        || ciphers.iter().any(|s| s.outcome.is_err())
+        || key_exchange.iter().any(|s| s.outcome.is_err())
+        || certificate
+            .as_ref()
+            .map_or(true, |c| c.certificates.iter().any(Result::is_err))
+        || findings.iter().any(|f| f.id == "policy.incomplete")
 }
 
 /// `policy.*` findings for each `--policy`. Successful cipher suite and key
@@ -1060,11 +1119,13 @@ async fn certificate_section(
 async fn revocation_section(
     transport: &Transport,
     chain: Option<&[Vec<u8>]>,
+    allowed_endpoints: Vec<SocketAddr>,
 ) -> (Result<Vec<RevocationCheck>, String>, Vec<Finding>) {
     let fetcher = Fetcher {
         connect_timeout: transport.connect_timeout,
         read_timeout: transport.read_timeout,
         max_body: 0,
+        allowed_endpoints,
         source: transport.source,
         proxy: transport.proxy,
     };
@@ -1215,6 +1276,36 @@ mod tests {
     //! Unit tests for the scan helpers.
 
     use super::*;
+
+    /// Missing mandatory evidence and incomplete policies fail independently
+    /// of finding severity, while intentionally skipped optional checks do not.
+    #[test]
+    fn required_measurements_must_complete() {
+        let cert = Ok(CertificateSection {
+            version: ProtocolVersion::TLS13,
+            certificates: vec![],
+            ocsp: None,
+        });
+        assert!(!incomplete_scan(&[], &[], &[], &cert, &[]));
+        assert!(incomplete_scan(
+            &[],
+            &[],
+            &[],
+            &Err("handshake failed".into()),
+            &[]
+        ));
+        let protocols = [ProtocolResult {
+            version: ProtocolVersion::TLS13,
+            support: ProtocolSupport::Error("timeout".into()),
+        }];
+        assert!(incomplete_scan(&protocols, &[], &[], &cert, &[]));
+        let findings = [Finding::new(
+            "policy.incomplete",
+            Severity::Info,
+            "missing evidence",
+        )];
+        assert!(incomplete_scan(&[], &[], &[], &cert, &findings));
+    }
 
     /// `explain` describes one id, lists all ids, and rejects unknown ones.
     #[test]
@@ -1488,13 +1579,13 @@ mod tests {
     #[tokio::test]
     async fn revocation_without_chain() {
         let transport = Transport::new(SocketAddr::from(([127, 0, 0, 1], 9)));
-        let (section, findings) = revocation_section(&transport, None).await;
+        let (section, findings) = revocation_section(&transport, None, vec![]).await;
         assert_eq!(
             section.unwrap_err(),
             "certificate chain could not be retrieved"
         );
         assert_eq!(findings[0].id, "revocation.error");
-        let (section, findings) = revocation_section(&transport, Some(&[])).await;
+        let (section, findings) = revocation_section(&transport, Some(&[]), vec![]).await;
         assert_eq!(section.unwrap_err(), "empty certificate chain");
         assert_eq!(findings[0].severity, Severity::Info);
     }
