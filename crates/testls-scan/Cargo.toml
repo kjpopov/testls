@@ -1,0 +1,22 @@
+[package]
+name = "testls-scan"
+description = "Scan pipeline that runs the testls probes and checks against one server."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+testls-checks.workspace = true
+testls-probe.workspace = true
+testls-report.workspace = true
+testls-wire.workspace = true
+tokio = { workspace = true, features = ["macros"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true
