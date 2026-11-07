@@ -79,6 +79,11 @@ if `gh` is allowed); update it when a session ends.
 
 ## Habits that worked
 
+- CodeRabbit no longer auto-reviews (repo under 10 stars; trigger with
+  `@coderabbitai review`) and is slow. Maintainer prefers a local review
+  by a `review` subagent with a GPT model (used `litellm/gpt-6.1-sol#high`);
+  fix its findings, then merge when CI is green.
+
 - One topic per PR, all review fixes in one commit per round, reply to each
   thread; reviews take 10–15 minutes, poll with `sleep 290` and a 320 s tool
   timeout.

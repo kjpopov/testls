@@ -30,8 +30,10 @@ use sections::{
     suite_sections,
 };
 
-/// What to scan beyond the address itself.
+/// What to scan beyond the address itself. Start from
+/// [`Options::default`] and set the fields you need.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Options {
     /// Server name to send in SNI and check the certificate against; the
     /// target IP is checked when `None`.
@@ -78,6 +80,7 @@ pub type OnEvent<'a> = dyn FnMut(Event<'_>) + Send + 'a;
 
 /// Why a scan stopped before collecting any results.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ScanError {
     /// Every protocol probe failed, so nothing else can be tested.
     NoProtocol,
@@ -97,6 +100,7 @@ impl std::error::Error for ScanError {}
 /// Everything one scan collected. Sections the profile skips hold
 /// [`SKIPPED`] as their error.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Scan {
     /// Address that was scanned.
     pub addr: SocketAddr,
@@ -135,6 +139,9 @@ pub struct Scan {
 /// Scans the server at `transport` with `options`, checking certificates
 /// against `store` and handing each finished section to `on_event`.
 ///
+/// The SNI name also becomes [`Transport::host`] (used by STARTTLS) unless
+/// the caller has set one.
+///
 /// # Errors
 ///
 /// [`ScanError::NoProtocol`] when no protocol version could be tested.
@@ -145,7 +152,7 @@ pub async fn scan(
     on_event: &mut OnEvent<'_>,
 ) -> Result<Scan, ScanError> {
     let sni = options.sni.as_deref();
-    transport.host.clone_from(&options.sni);
+    default_host(&mut transport, sni);
     let addr = transport.addr;
     let started_at = unix_now();
 
@@ -221,6 +228,13 @@ pub async fn scan(
     })
 }
 
+/// Sets `transport.host` to `sni` when the caller left it unset.
+fn default_host(transport: &mut Transport, sni: Option<&str>) {
+    if transport.host.is_none() {
+        transport.host = sni.map(str::to_owned);
+    }
+}
+
 /// Current time as a Unix timestamp.
 #[must_use]
 pub fn unix_now() -> i64 {
@@ -233,6 +247,8 @@ pub fn unix_now() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for the scan entry point.
+
     use super::*;
 
     /// The scan future can run on a multi-threaded runtime, as a server
@@ -256,5 +272,39 @@ mod tests {
             ScanError::NoProtocol.to_string(),
             "no protocol could be tested"
         );
+    }
+
+    /// An explicit transport host survives; otherwise the SNI name fills it.
+    #[test]
+    fn host_defaults_to_sni() {
+        let mut transport = Transport::new(SocketAddr::from(([127, 0, 0, 1], 9)));
+        default_host(&mut transport, Some("sni.example"));
+        assert_eq!(transport.host.as_deref(), Some("sni.example"));
+        transport.host = Some("xmpp.example".to_owned());
+        default_host(&mut transport, None);
+        assert_eq!(transport.host.as_deref(), Some("xmpp.example"));
+        default_host(&mut transport, Some("sni.example"));
+        assert_eq!(transport.host.as_deref(), Some("xmpp.example"));
+    }
+
+    /// A server that refuses every connection yields only the protocols
+    /// event, then the no-protocol error.
+    #[tokio::test]
+    async fn refused_reports_protocols_only() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        drop(listener);
+        let mut events = Vec::new();
+        let mut on_event = |event: Event<'_>| events.push(format!("{event:?}"));
+        let result = scan(
+            Transport::new(addr),
+            &Options::default(),
+            &TrustStore::webpki(),
+            &mut on_event,
+        )
+        .await;
+        assert_eq!(result.err(), Some(ScanError::NoProtocol));
+        assert_eq!(events.len(), 1);
+        assert!(events[0].starts_with("Protocols("), "{events:?}");
     }
 }

@@ -11,7 +11,8 @@ pub enum ScanProfile {
     /// Every probe of the target itself.
     #[default]
     Default,
-    /// `default` plus revocation lookups and every address of a host.
+    /// `default` plus revocation lookups. The CLI also scans every address
+    /// of a host; [`scan`](crate::scan) covers only the address it is given.
     Full,
 }
 

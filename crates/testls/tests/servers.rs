@@ -223,6 +223,23 @@ fn modern_server() {
         s.stdout
     );
     assert_eq!(s.code, 0);
+    let order = [
+        "\nProtocols\n",
+        "\nCiphers TLSv1.2",
+        "\nKey exchange TLSv1.2",
+        "\nCiphers TLSv1.3",
+        "\nKey exchange TLSv1.3",
+        "\nPost-quantum readiness\n",
+        "\nCertificate (",
+        "\nHTTP headers (",
+        "\nVulnerabilities\n",
+        "\nClientHello tolerance",
+        "\nHandshake details\n",
+        "\nFindings\n",
+        "\nGrade\n",
+    ]
+    .map(|heading| s.stdout.find(heading).expect(heading));
+    assert!(order.is_sorted(), "sections out of order:\n{}", s.stdout);
 }
 
 /// `--color` default (`auto`) leaves piped output plain; `always` colours

@@ -459,6 +459,8 @@ pub(crate) async fn details_section(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for section results when probes fail.
+
     use std::net::SocketAddr;
 
     use super::*;

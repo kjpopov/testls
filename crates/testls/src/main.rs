@@ -745,17 +745,17 @@ async fn scan(
 /// Scan options from the command line; the SNI name defaults to the host
 /// name of `scan_target`.
 fn scan_options(cli: &Cli, scan_target: &Target) -> Options {
-    Options {
-        sni: cli
-            .sni
-            .as_deref()
-            .or(scan_target.default_sni())
-            .map(str::to_owned),
-        profile: cli.profile,
-        revocation: cli.revocation,
-        revocation_allow_private: cli.revocation_allow_private,
-        policies: cli.policies.clone(),
-    }
+    let mut options = Options::default();
+    options.sni = cli
+        .sni
+        .as_deref()
+        .or(scan_target.default_sni())
+        .map(str::to_owned);
+    options.profile = cli.profile;
+    options.revocation = cli.revocation;
+    options.revocation_allow_private = cli.revocation_allow_private;
+    options.policies.clone_from(&cli.policies);
+    options
 }
 
 /// Text rendering of one finished scan section.
