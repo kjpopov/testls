@@ -36,6 +36,7 @@ pub struct Target {
 
 impl Target {
     /// Server name to send in SNI: the DNS name, or none for IP literals.
+    #[must_use]
     pub fn default_sni(&self) -> Option<&str> {
         match &self.host {
             Host::Name(n) => Some(n),
@@ -78,6 +79,10 @@ impl std::str::FromStr for Target {
 impl Target {
     /// Parses `input` like [`str::parse`], using `default_port` when the
     /// target names neither a port nor a URL scheme.
+    ///
+    /// # Errors
+    ///
+    /// [`ParseTargetError`] naming what is wrong with `input`.
     pub fn parse_with_port(input: &str, default_port: u16) -> Result<Self, ParseTargetError> {
         let s = input.trim();
         let (s, scheme_port) = match s.split_once("://") {
@@ -161,6 +166,10 @@ impl std::str::FromStr for TargetSpec {
 impl TargetSpec {
     /// Parses `input` like [`str::parse`], using `default_port` when the
     /// target or range names neither a port nor a URL scheme.
+    ///
+    /// # Errors
+    ///
+    /// [`ParseTargetError`] naming what is wrong with `input`.
     pub fn parse_with_port(input: &str, default_port: u16) -> Result<Self, ParseTargetError> {
         let s = input.trim();
         match cidr_parts(s)? {
@@ -283,6 +292,7 @@ pub struct ResolveOverride {
 
 impl ResolveOverride {
     /// Whether this entry applies to `target`.
+    #[must_use]
     pub fn matches(&self, target: &Target) -> bool {
         target.port == self.port && matches!(&target.host, Host::Name(n) if *n == self.host)
     }

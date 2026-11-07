@@ -8,6 +8,7 @@
 mod profile;
 mod revocation;
 mod sections;
+pub mod target;
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -21,7 +22,9 @@ use testls_probe::{
     HandshakeDetails, HttpResponse, Intolerance, ProtocolResult, ProtocolSupport, Transport,
     detect_protocols,
 };
-use testls_report::text::{CertificateSection, CipherSection, KeyExchangeSection};
+use testls_report::Painter;
+use testls_report::text::{self, CertificateSection, CipherSection, KeyExchangeSection};
+use testls_wire::ProtocolVersion;
 
 pub use profile::{SKIPPED, ScanProfile};
 
@@ -73,6 +76,53 @@ pub enum Event<'a> {
     Intolerance(&'a Result<Intolerance, String>),
     /// Handshake details, or why they could not be probed.
     Details(&'a Result<HandshakeDetails, String>),
+}
+
+impl Event<'_> {
+    /// Stable name of the section, such as `ciphers`.
+    #[must_use]
+    pub fn section(&self) -> &'static str {
+        match self {
+            Self::Protocols(_) => "protocols",
+            Self::Ciphers(_) => "ciphers",
+            Self::KeyExchange(_) => "key_exchange",
+            Self::PostQuantum(_) => "post_quantum",
+            Self::Certificate(_) => "certificate",
+            Self::Revocation(_) => "revocation",
+            Self::Http(_) | Self::HttpSkipped(_) => "http",
+            Self::Vulnerabilities(_) => "vulnerabilities",
+            Self::Intolerance(_) => "intolerance",
+            Self::Details(_) => "details",
+        }
+    }
+
+    /// Protocol version the section covers, for the per-version sections.
+    #[must_use]
+    pub fn version(&self) -> Option<ProtocolVersion> {
+        match self {
+            Self::Ciphers(s) => Some(s.version),
+            Self::KeyExchange(s) => Some(s.version),
+            _ => None,
+        }
+    }
+
+    /// Text rendering of the section, as the CLI prints it.
+    #[must_use]
+    pub fn text(&self, paint: Painter) -> String {
+        match *self {
+            Self::Protocols(p) => text::protocols(p, paint),
+            Self::Ciphers(s) => text::ciphers(s, paint),
+            Self::KeyExchange(s) => text::key_exchange(s, paint),
+            Self::PostQuantum(pq) => text::post_quantum(pq, paint),
+            Self::Certificate(c) => text::certificate(c, paint),
+            Self::Revocation(r) => text::revocation(r, paint),
+            Self::Http(h) => text::http(h, paint),
+            Self::HttpSkipped(reason) => format!("HTTP headers: {reason}"),
+            Self::Vulnerabilities(v) => text::vulnerabilities(v, paint),
+            Self::Intolerance(i) => text::intolerance(i, paint),
+            Self::Details(d) => text::details(d, paint),
+        }
+    }
 }
 
 /// Receiver of the [`Event`]s of a running scan.
@@ -306,5 +356,18 @@ mod tests {
         assert_eq!(result.err(), Some(ScanError::NoProtocol));
         assert_eq!(events.len(), 1);
         assert!(events[0].starts_with("Protocols("), "{events:?}");
+    }
+
+    /// Events name their section, carry a version only for per-version
+    /// sections, and render the CLI text.
+    #[test]
+    fn event_metadata() {
+        let skipped = Event::HttpSkipped("not over STARTTLS");
+        assert_eq!(skipped.section(), "http");
+        assert_eq!(skipped.version(), None);
+        assert_eq!(
+            skipped.text(Painter::new(false)),
+            "HTTP headers: not over STARTTLS"
+        );
     }
 }

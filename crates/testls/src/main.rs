@@ -2,7 +2,6 @@
 
 mod baseline;
 mod config;
-mod target;
 
 use std::fmt::Write as _;
 use std::io::{IsTerminal as _, Write as _};
@@ -21,8 +20,8 @@ use testls_wire::ProtocolVersion;
 
 use baseline::Baseline;
 use config::Config;
-use target::{Host, ProxySpec, ResolveOverride, Target, TargetSpec};
 use testls_report::json::Suppressed;
+use testls_scan::target::{self, Host, ProxySpec, ResolveOverride, Target, TargetSpec};
 use testls_scan::{Event, Options, ScanProfile, unix_now};
 
 /// TLS/SSL scanner inspired by testssl.sh.
@@ -705,7 +704,7 @@ async fn scan(
     }
     let mut on_event = |event: Event<'_>| {
         if is_text {
-            print!("\n{}", render_event(event, paint));
+            print!("\n{}", event.text(paint));
         }
     };
     let scan = match testls_scan::scan(transport, &options, store, &mut on_event).await {
@@ -756,23 +755,6 @@ fn scan_options(cli: &Cli, scan_target: &Target) -> Options {
     options.revocation_allow_private = cli.revocation_allow_private;
     options.policies.clone_from(&cli.policies);
     options
-}
-
-/// Text rendering of one finished scan section.
-fn render_event(event: Event<'_>, paint: Painter) -> String {
-    match event {
-        Event::Protocols(p) => text::protocols(p, paint),
-        Event::Ciphers(s) => text::ciphers(s, paint),
-        Event::KeyExchange(s) => text::key_exchange(s, paint),
-        Event::PostQuantum(pq) => text::post_quantum(pq, paint),
-        Event::Certificate(c) => text::certificate(c, paint),
-        Event::Revocation(r) => text::revocation(r, paint),
-        Event::Http(h) => text::http(h, paint),
-        Event::HttpSkipped(reason) => format!("HTTP headers: {reason}"),
-        Event::Vulnerabilities(v) => text::vulnerabilities(v, paint),
-        Event::Intolerance(i) => text::intolerance(i, paint),
-        Event::Details(d) => text::details(d, paint),
-    }
 }
 
 /// Outcome of a scan that ran: the exit code from the findings and the
