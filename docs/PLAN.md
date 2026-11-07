@@ -21,6 +21,7 @@ crates/ (Cargo workspace)
 │                  # (protocol support, cipher enumeration, server preference)
 ├─ testls-checks   # Findings: certificate, headers, vulns; severity model
 ├─ testls-report   # Text + JSON renderers, exit-code policy
+├─ testls-scan     # Scan pipeline shared by CLI and server, section events
 ├─ testls-server   # axum REST + SSE, embedded UI (v0.6)
 └─ testls (bin)    # clap CLI, wires everything together
 ```
@@ -141,8 +142,9 @@ Two connection paths:
 - [x] Released as v0.5.0 (intrusive checks moved to the backlog, #90)
 
 ### v0.6 — Web service (one-off scanner UI, #91)
-- [ ] Move the scan pipeline out of `main.rs` into a library function the
-  CLI and server share (progress callback per section)
+- [x] Move the scan pipeline out of `main.rs` into a library function the
+  CLI and server share (progress callback per section; crate
+  `testls-scan`, #93)
 - [ ] `testls-server` crate: axum, `testls serve`, binds 127.0.0.1 by default
 - [ ] REST: `POST /scans`, `GET /scans`, `GET /scans/{id}`,
   `GET /scans/{id}/events` (SSE), `GET /scans/{id}/report?format=…`
@@ -294,3 +296,4 @@ None at the moment (default profile and politeness settled in #88, #89).
 | 90 | v0.5.0 ships without the intrusive checks (Heartbleed, CCS injection, Ticketbleed, ROBOT behind `--intrusive`); they move to the backlog. Amends #34 | Everything else planned for v0.5 is done and useful now; the intrusive probes send attack traffic, need their own design and test servers, and should not hold back the release |
 | 91 | v0.6 is a one-off scanner UI (scan form, live progress, report, export) with in-memory history only; groups, owners, scheduled rescans and persistence move to a v0.7 monitoring milestone | A useful UI ships sooner and the REST/SSE core gets settled before storage and scheduling are designed on top of it |
 | 92 | The UI is vanilla JavaScript (ES modules) and CSS embedded in the binary, no npm or build step; the look adapts the maintainer's dark dashboard style (design tokens, status pills, stats strip, detail drawer), reused with permission. Severities map to the token colours. Scanned text is set with `textContent` only, under a CSP without inline scripts | No Node toolchain in CI, release or `cargo deny`; a small app does not need a framework, and a strict CSP plus no HTML injection keeps server-controlled text from running as script |
+| 93 | The scan pipeline lives in a new crate `testls-scan`: `scan(transport, &Options, &TrustStore, on_event)` runs every section and returns a `Scan` with untriaged findings and the grade; `on_event` gets a typed `Event` borrowing each finished section. Triage (suppressions, baseline), output formats and exit codes stay in the CLI. `ScanProfile` and the revocation lookups move with it | The CLI and the server share one pipeline; typed events let the CLI render text and the server serialise JSON without a second code path, and keeping triage in the CLI leaves the library free of config-file concerns |

@@ -67,9 +67,12 @@ if `gh` is allowed); update it when a session ends.
    All 6 crates on crates.io at 0.5.0. Maintainer: Marketplace tick.
 2. v0.6 web service: scope settled (#91, #92; branch
    `docs/web-service-design`). Maintainer supplied dashboard CSS (own
-   project, reuse OK; re-ask to paste if needed). Next: PR 1 = extract scan
-   pipeline from `main.rs` into a library fn with progress callback; then
-   `testls-server` skeleton. Next decision number: **#93**.
+   project, reuse OK; re-ask to paste if needed). PR 1 done on branch
+   `feat/scan-library` (stacked on the docs branch): crate `testls-scan`
+   (#93) with `scan()`, typed `Event` callback, `Options`, `Scan`; CLI keeps
+   triage/output via `render_event`. Output verified identical to main;
+   MSRV and podman integration tests not run locally. Next: `testls-server`
+   skeleton (axum, SSE). Next decision number: **#94**.
 3. Backlog: intrusive checks (`--intrusive`: Heartbleed, CCS injection,
    Ticketbleed, ROBOT; a remote branch `feat/intrusive-checks` exists, not
    ours, check with the maintainer), `--delay`, `--parallel`.
