@@ -2,7 +2,7 @@
 # (CA certificates for --system-roots, no shell, unprivileged user 65532).
 # The build context holds one binary per architecture as ARCH/testls
 # (amd64, arm64); see the container job in .github/workflows/release.yml.
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
 ARG TARGETARCH
 COPY --chmod=755 ${TARGETARCH}/testls /usr/local/bin/testls
 LABEL org.opencontainers.image.source="https://github.com/kjpopov/testls" \
