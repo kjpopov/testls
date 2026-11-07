@@ -43,6 +43,12 @@ reviews:
       instructions: >-
         Look for false positives and false negatives, and check that the
         severity matches the cited source.
+    - path: "crates/testls-scan/**/*.rs"
+      instructions: >-
+        The CLI and the web server share this pipeline. Check that every
+        section emits its event once, in report order, that a failed
+        section degrades to an error result instead of aborting the scan,
+        and that no output formatting or exit-code logic leaks in.
     - path: "crates/testls/src/**/*.rs"
       instructions: >-
         Exit codes are a CLI contract: 0 = no findings at or above

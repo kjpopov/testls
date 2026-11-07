@@ -13,6 +13,7 @@ Ground rules for anyone changing `testls`, human or AI agent. Read
 | `crates/testls-probe` | Network probes: protocol detection, cipher enumeration |
 | `crates/testls-checks` | Turns probe results into `Finding`s with a `Severity` |
 | `crates/testls-report` | Output formatting (text, JSON) |
+| `crates/testls-scan` | Scan pipeline shared by CLI and server; emits section events |
 | `crates/testls` | CLI binary |
 | `tests/servers` | Container images for integration tests |
 

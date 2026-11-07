@@ -2,8 +2,6 @@
 
 mod baseline;
 mod config;
-mod profile;
-mod revocation;
 mod target;
 
 use std::fmt::Write as _;
@@ -11,33 +9,21 @@ use std::io::{IsTerminal as _, Write as _};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use clap::builder::TypedValueParser as _;
 use clap::{CommandFactory as _, Parser, Subcommand};
-use testls_checks::{
-    Finding, Policy, PolicyInput, RevocationCheck, Severity, TrustStore, Vulnerability,
-    assess_vulnerabilities, baseline_findings, certificate_findings, cipher_findings,
-    describe_certificate, details_findings, explain, explanations, http_extra_findings,
-    http_findings, intolerance_findings, is_trusted, key_exchange_findings, ocsp_findings,
-    policy_findings, post_quantum_readiness, protocol_findings, revocation_findings,
-    revocation_urls, trust_findings, verify_ocsp_response, vulnerability_findings,
-};
-use testls_probe::{
-    CipherResult, Fetcher, HandshakeDetails, HttpResponse, Intolerance, KeyExchangeResult,
-    MxResolver, ProtocolResult, ProtocolSupport, Starttls, Transport, detect_protocols,
-    enumerate_ciphers, fetch_certificates, fetch_http_headers, probe_details, probe_features,
-    probe_intolerance, probe_key_exchange, probe_tls_upgrade,
-};
-use testls_report::text::{self, CertificateSection, CipherSection, KeyExchangeSection};
+use testls_checks::{Finding, Policy, Severity, TrustStore, explain, explanations};
+use testls_probe::{MxResolver, ProtocolResult, ProtocolSupport, Starttls, Transport};
+use testls_report::text::{self, CipherSection};
 use testls_report::{ColorChoice, Format, Painter, csv, html, json, junit, markdown, sarif};
 use testls_wire::ProtocolVersion;
 
 use baseline::Baseline;
 use config::Config;
-use profile::ScanProfile;
 use target::{Host, ProxySpec, ResolveOverride, Target, TargetSpec};
 use testls_report::json::Suppressed;
+use testls_scan::{Event, Options, ScanProfile, unix_now};
 
 /// TLS/SSL scanner inspired by testssl.sh.
 #[derive(Debug, Parser)]
@@ -705,104 +691,88 @@ async fn scan(
     store: &TrustStore,
     rules: (&Config, &Baseline),
     scan_target: &Target,
-    mut transport: Transport,
+    transport: Transport,
 ) -> Outcome {
     let paint = painter(cli);
-    let sni = cli.sni.as_deref().or(scan_target.default_sni());
-    transport.host = sni.map(str::to_owned);
-    let addr = transport.addr;
-
-    let started_at = unix_now();
+    let options = scan_options(cli, scan_target);
     let target = scan_target.to_string();
     let is_text = cli.format == Format::Text;
-    let show = |section: String| {
+    if is_text {
+        print!(
+            "{}",
+            text::header(&target, transport.addr, options.sni.as_deref())
+        );
+    }
+    let mut on_event = |event: Event<'_>| {
         if is_text {
-            print!("{section}");
+            print!("\n{}", render_event(event, paint));
         }
     };
-
-    show(text::header(&target, addr, sni));
-    let protocols = detect_protocols(&transport, sni).await;
-    show(format!("\n{}", text::protocols(&protocols, paint)));
-    if protocols
-        .iter()
-        .all(|r| matches!(r.support, ProtocolSupport::Error(_)))
-    {
-        return Outcome::failed(scan_target, "no protocol could be tested");
-    }
-    let mut findings = protocol_findings(&protocols);
-
-    let deep = cli.profile.deep();
-    let (ciphers, key_exchange) = suite_sections(
-        &transport,
-        &protocols,
-        sni,
-        deep,
-        &mut findings,
-        paint,
-        &show,
-    )
-    .await;
-    let post_quantum = post_quantum_readiness(&measured(&key_exchange));
-    if deep {
-        show(format!("\n{}", text::post_quantum(&post_quantum, paint)));
-    }
-
-    let host = sni.map_or_else(|| addr.ip().to_string(), str::to_owned);
-    let (certificate, cert_findings, chain) =
-        certificate_section(&transport, sni, &host, store).await;
-    show(format!("\n{}", text::certificate(&certificate, paint)));
-    findings.extend(cert_findings);
-
-    let revocation = if cli.revocation || cli.profile.full() {
-        let (section, more) =
-            revocation_section(&transport, chain.as_deref(), cli.revocation_allow_private).await;
-        show(format!("\n{}", text::revocation(&section, paint)));
-        findings.extend(more);
-        Some(section)
-    } else {
-        None
+    let scan = match testls_scan::scan(transport, &options, store, &mut on_event).await {
+        Ok(scan) => scan,
+        Err(e) => return Outcome::failed(scan_target, &e.to_string()),
     };
 
-    let (http, vulns, intolerance, details) = later_sections(
-        &transport,
-        (&protocols, &ciphers, &key_exchange),
-        sni,
-        deep,
-        &mut findings,
-        paint,
-        &show,
-    )
-    .await;
-    let measured_parts = (&protocols[..], &ciphers[..], &key_exchange[..]);
-    findings.extend(policy_section(cli, measured_parts, chain.as_deref(), &http));
-
-    let grade = testls_checks::grade(&findings, &protocols, http.as_ref().ok());
-    let (findings, suppressed) = triage(findings, rules, scan_target, started_at);
-    show(format!("\n{}", text::findings(&findings, paint)));
-    show(text::suppressed(&suppressed, paint));
-    show(text::grade(&grade, paint));
+    let (findings, suppressed) = triage(scan.findings.clone(), rules, scan_target, scan.started_at);
+    if is_text {
+        print!("\n{}", text::findings(&findings, paint));
+        print!("{}", text::suppressed(&suppressed, paint));
+        print!("{}", text::grade(&scan.grade, paint));
+    }
 
     let report = json::Report {
         target: &target,
-        addr,
-        sni,
-        started_at,
-        protocols: &protocols,
-        ciphers: &ciphers,
-        key_exchange: &key_exchange,
-        post_quantum: &post_quantum,
-        certificate: &certificate,
-        http: &http,
-        revocation: revocation.as_ref(),
-        vulnerabilities: &vulns,
-        intolerance: &intolerance,
-        details: &details,
-        grade: &grade,
+        addr: scan.addr,
+        sni: scan.sni.as_deref(),
+        started_at: scan.started_at,
+        protocols: &scan.protocols,
+        ciphers: &scan.ciphers,
+        key_exchange: &scan.key_exchange,
+        post_quantum: &scan.post_quantum,
+        certificate: &scan.certificate,
+        http: &scan.http,
+        revocation: scan.revocation.as_ref(),
+        vulnerabilities: &scan.vulnerabilities,
+        intolerance: &scan.intolerance,
+        details: &scan.details,
+        grade: &scan.grade,
         findings: &findings,
         suppressed: &suppressed,
     };
-    outcome(cli, &report, chain.as_deref())
+    outcome(cli, &report, scan.chain.as_deref())
+}
+
+/// Scan options from the command line; the SNI name defaults to the host
+/// name of `scan_target`.
+fn scan_options(cli: &Cli, scan_target: &Target) -> Options {
+    let mut options = Options::default();
+    options.sni = cli
+        .sni
+        .as_deref()
+        .or(scan_target.default_sni())
+        .map(str::to_owned);
+    options.profile = cli.profile;
+    options.revocation = cli.revocation;
+    options.revocation_allow_private = cli.revocation_allow_private;
+    options.policies.clone_from(&cli.policies);
+    options
+}
+
+/// Text rendering of one finished scan section.
+fn render_event(event: Event<'_>, paint: Painter) -> String {
+    match event {
+        Event::Protocols(p) => text::protocols(p, paint),
+        Event::Ciphers(s) => text::ciphers(s, paint),
+        Event::KeyExchange(s) => text::key_exchange(s, paint),
+        Event::PostQuantum(pq) => text::post_quantum(pq, paint),
+        Event::Certificate(c) => text::certificate(c, paint),
+        Event::Revocation(r) => text::revocation(r, paint),
+        Event::Http(h) => text::http(h, paint),
+        Event::HttpSkipped(reason) => format!("HTTP headers: {reason}"),
+        Event::Vulnerabilities(v) => text::vulnerabilities(v, paint),
+        Event::Intolerance(i) => text::intolerance(i, paint),
+        Event::Details(d) => text::details(d, paint),
+    }
 }
 
 /// Outcome of a scan that ran: the exit code from the findings and the
@@ -820,54 +790,6 @@ fn outcome(cli: &Cli, report: &json::Report<'_>, chain: Option<&[Vec<u8>]>) -> O
         failure: None,
         profile: Some(profile(report.protocols, report.ciphers, chain)),
     }
-}
-
-/// `policy.*` findings for each `--policy`. Successful cipher suite and key
-/// exchange probes are checked per version; failed probes of versions a
-/// policy allows make it incomplete (the quick profile skips key exchange).
-fn policy_section(
-    cli: &Cli,
-    (protocols, ciphers, key_exchange): (
-        &[ProtocolResult],
-        &[CipherSection],
-        &[KeyExchangeSection],
-    ),
-    chain: Option<&[Vec<u8>]>,
-    http: &Result<HttpResponse, String>,
-) -> Vec<Finding> {
-    let (ciphers, cipher_errors) = measured_versions(ciphers, |s| (s.version, &s.outcome));
-    let (key_exchange, key_exchange_errors) =
-        measured_versions(key_exchange, |s| (s.version, &s.outcome));
-    let input = PolicyInput {
-        protocols,
-        ciphers: Some(&ciphers),
-        cipher_errors: &cipher_errors,
-        key_exchange: cli.profile.deep().then_some(&key_exchange[..]),
-        key_exchange_errors: &key_exchange_errors,
-        chain,
-        http: http.as_ref().ok(),
-    };
-    cli.policies
-        .iter()
-        .flat_map(|&p| policy_findings(p, &input))
-        .collect()
-}
-
-/// The results of the sections that succeeded, and the protocol versions of
-/// those that failed.
-fn measured_versions<S, T: Clone>(
-    sections: &[S],
-    outcome: impl Fn(&S) -> (ProtocolVersion, &Result<T, String>),
-) -> (Vec<T>, Vec<ProtocolVersion>) {
-    let mut results = Vec::new();
-    let mut failed = Vec::new();
-    for section in sections {
-        match outcome(section) {
-            (_, Ok(result)) => results.push(result.clone()),
-            (version, Err(_)) => failed.push(version),
-        }
-    }
-    (results, failed)
 }
 
 /// Drops `ok` findings, sorts the rest most severe first and splits off
@@ -933,405 +855,6 @@ fn trust_store(cli: &Cli) -> Result<TrustStore, String> {
         Ok(store)
     } else {
         Ok(TrustStore::webpki())
-    }
-}
-
-/// Current time as a Unix timestamp.
-fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|d| i64::try_from(d.as_secs()).ok())
-        .unwrap_or(i64::MAX)
-}
-
-/// Enumerates the cipher suites of one protocol `version`.
-async fn cipher_section(
-    transport: &Transport,
-    version: ProtocolVersion,
-    sni: Option<&str>,
-) -> CipherSection {
-    CipherSection {
-        version,
-        outcome: enumerate_ciphers(transport, version, sni)
-            .await
-            .map_err(|e| e.to_string()),
-    }
-}
-
-/// Findings for one cipher section; a failed enumeration is informational.
-fn section_findings(section: &CipherSection) -> Vec<Finding> {
-    match &section.outcome {
-        Ok(c) => cipher_findings(c),
-        Err(e) => vec![Finding::new(
-            "cipher.error",
-            Severity::Info,
-            format!("{} ciphers could not be enumerated: {e}", section.version),
-        )],
-    }
-}
-
-/// Probes the supported groups and DH parameter size of one protocol
-/// `version`, using the suites accepted in the cipher `section`.
-///
-/// When cipher enumeration failed the accepted suites are unknown, so the
-/// key exchange section reports that instead of probing.
-async fn key_exchange_section(
-    transport: &Transport,
-    section: &CipherSection,
-    sni: Option<&str>,
-) -> KeyExchangeSection {
-    let outcome = match &section.outcome {
-        Ok(c) => probe_key_exchange(transport, section.version, &c.suites, sni)
-            .await
-            .map_err(|e| e.to_string()),
-        Err(_) => Err("cipher enumeration failed".to_owned()),
-    };
-    KeyExchangeSection {
-        version: section.version,
-        outcome,
-    }
-}
-
-/// Enumerates the cipher suites of each supported protocol and, when
-/// `deep` is set, probes its key exchange, adding their findings to
-/// `findings` and handing each rendered section to `show` as it finishes.
-async fn suite_sections(
-    transport: &Transport,
-    protocols: &[ProtocolResult],
-    sni: Option<&str>,
-    deep: bool,
-    findings: &mut Vec<Finding>,
-    paint: Painter,
-    show: &dyn Fn(String),
-) -> (Vec<CipherSection>, Vec<KeyExchangeSection>) {
-    let mut ciphers = Vec::new();
-    let mut key_exchange = Vec::new();
-    for r in protocols {
-        if r.support != ProtocolSupport::Supported {
-            continue;
-        }
-        let section = cipher_section(transport, r.version, sni).await;
-        show(format!("\n{}", text::ciphers(&section, paint)));
-        findings.extend(section_findings(&section));
-        if deep {
-            let kx = key_exchange_section(transport, &section, sni).await;
-            show(format!("\n{}", text::key_exchange(&kx, paint)));
-            findings.extend(kx_findings(&kx));
-            key_exchange.push(kx);
-        }
-        ciphers.push(section);
-    }
-    (ciphers, key_exchange)
-}
-
-/// Fetches HTTP headers, derives vulnerabilities and runs the tolerance
-/// and detail probes; all but the vulnerability verdicts are skipped
-/// unless `deep` is set. Adds their findings to `findings` and hands each
-/// rendered section to `show`.
-async fn later_sections(
-    transport: &Transport,
-    (protocols, ciphers, key_exchange): (
-        &[ProtocolResult],
-        &[CipherSection],
-        &[KeyExchangeSection],
-    ),
-    sni: Option<&str>,
-    deep: bool,
-    findings: &mut Vec<Finding>,
-    paint: Painter,
-    show: &dyn Fn(String),
-) -> (
-    Result<HttpResponse, String>,
-    Vec<Vulnerability>,
-    Result<Intolerance, String>,
-    Result<HandshakeDetails, String>,
-) {
-    let http = if let Some(protocol) = transport.starttls {
-        let status = format!("not checked over --starttls {protocol}");
-        show(format!("\nHTTP headers: {status}"));
-        Err(status)
-    } else if deep {
-        let (http, http_findings) = http_section(transport, sni).await;
-        show(format!("\n{}", text::http(&http, paint)));
-        findings.extend(http_findings);
-        http
-    } else {
-        skipped()
-    };
-
-    let measured = (protocols, ciphers, key_exchange, http.as_ref().ok());
-    let vulns = vulnerability_section(transport, measured, sni, deep).await;
-    show(format!("\n{}", text::vulnerabilities(&vulns, paint)));
-    findings.extend(vulnerability_findings(&vulns));
-
-    if !deep {
-        return (http, vulns, skipped(), skipped());
-    }
-    let (intolerance, intolerance_findings) = intolerance_section(transport, ciphers, sni).await;
-    show(format!("\n{}", text::intolerance(&intolerance, paint)));
-    findings.extend(intolerance_findings);
-    let (details, details_findings) = details_section(transport, ciphers, sni).await;
-    show(format!("\n{}", text::details(&details, paint)));
-    findings.extend(details_findings);
-    (http, vulns, intolerance, details)
-}
-
-/// Result of a section the `quick` profile leaves out: an error naming
-/// the profile.
-fn skipped<T>() -> Result<T, String> {
-    Err(profile::SKIPPED.to_owned())
-}
-
-/// Findings for one key exchange section; a failed probe is informational.
-fn kx_findings(section: &KeyExchangeSection) -> Vec<Finding> {
-    match &section.outcome {
-        Ok(k) => key_exchange_findings(k),
-        Err(e) => vec![Finding::new(
-            "group.error",
-            Severity::Info,
-            format!("{} key exchange could not be probed: {e}", section.version),
-        )],
-    }
-}
-
-/// Certificate section, its findings, and the DER chain when it was
-/// retrieved.
-type CertificateOutcome = (
-    Result<CertificateSection, String>,
-    Vec<Finding>,
-    Option<Vec<Vec<u8>>>,
-);
-
-/// Fetches and checks the certificate chain, returning its description,
-/// findings, and the chain itself.
-///
-/// The leaf is checked against `host`, the SNI name or the target IP.
-async fn certificate_section(
-    transport: &Transport,
-    sni: Option<&str>,
-    host: &str,
-    store: &TrustStore,
-) -> CertificateOutcome {
-    let chain = match fetch_certificates(transport, sni).await {
-        Ok(chain) => chain,
-        Err(e) => {
-            let finding = Finding::new(
-                "cert.error",
-                Severity::Info,
-                format!("certificate could not be retrieved: {e}"),
-            );
-            return (Err(e.to_string()), vec![finding], None);
-        }
-    };
-    let now = unix_now();
-    let mut findings = certificate_findings(&chain.certificates, Some(host), now);
-    if !chain.signature_verified {
-        findings.push(Finding::new(
-            "cert.signature_unverified",
-            Severity::Info,
-            "handshake signature not verified: scheme or key not supported",
-        ));
-    }
-    if store.is_public() && is_trusted(&chain.certificates, now, store) {
-        findings.extend(baseline_findings(&chain.certificates));
-    }
-    findings.extend(trust_findings(&chain.certificates, now, store));
-    let ocsp_response = chain.ocsp_response.as_deref();
-    findings.extend(ocsp_findings(&chain.certificates, ocsp_response, now));
-    let ocsp = ocsp_response.map(|der| verify_ocsp_response(der, &chain.certificates, now));
-    let section = CertificateSection {
-        version: chain.version,
-        certificates: chain
-            .certificates
-            .iter()
-            .map(|der| describe_certificate(der))
-            .collect(),
-        ocsp,
-    };
-    (Ok(section), findings, Some(chain.certificates))
-}
-
-/// Checks the leaf of `chain` against the issuer's OCSP responders and
-/// CRLs. Without a chain or with unreadable URLs the check cannot run,
-/// which is informational.
-///
-/// Requests use the connect and read timeouts of `transport`; non-public
-/// endpoints are refused unless `allow_private` is set.
-async fn revocation_section(
-    transport: &Transport,
-    chain: Option<&[Vec<u8>]>,
-    allow_private: bool,
-) -> (Result<Vec<RevocationCheck>, String>, Vec<Finding>) {
-    let fetcher = Fetcher {
-        connect_timeout: transport.connect_timeout,
-        read_timeout: transport.read_timeout,
-        max_body: 0,
-        source: transport.source,
-        proxy: transport.proxy,
-        allow_private,
-    };
-    let urls = chain
-        .ok_or_else(|| "certificate chain could not be retrieved".to_owned())
-        .and_then(|chain| {
-            let leaf = chain.first().ok_or("empty certificate chain")?;
-            revocation_urls(leaf).map(|urls| (chain, urls))
-        });
-    match urls {
-        Ok((chain, urls)) => {
-            let now = unix_now();
-            let checks = revocation::check_revocation(fetcher, chain, &urls, now).await;
-            let findings = revocation_findings(&checks, now);
-            (Ok(checks), findings)
-        }
-        Err(e) => {
-            let finding = Finding::new(
-                "revocation.error",
-                Severity::Info,
-                format!("revocation status could not be checked: {e}"),
-            );
-            (Err(e), vec![finding])
-        }
-    }
-}
-
-/// Fetches the reply to `GET /` and checks HSTS, security headers, banners,
-/// `Alt-Svc`, and cookies.
-///
-/// A server that does not speak HTTP is common for non-web TLS services,
-/// so a failed fetch is informational.
-async fn http_section(
-    transport: &Transport,
-    sni: Option<&str>,
-) -> (Result<HttpResponse, String>, Vec<Finding>) {
-    match fetch_http_headers(transport, sni).await {
-        Ok(response) => {
-            let mut findings = http_findings(&response);
-            findings.extend(http_extra_findings(&response));
-            (Ok(response), findings)
-        }
-        Err(e) => {
-            let finding = Finding::new(
-                "http.error",
-                Severity::Info,
-                format!("HTTP headers could not be retrieved: {e}"),
-            );
-            (Err(e.to_string()), vec![finding])
-        }
-    }
-}
-
-/// Probes compression, renegotiation, downgrade protection, ALPN and, unless
-/// STARTTLS is used, the RFC 2817 HTTP upgrade when `probe` is set, then
-/// derives the named vulnerabilities from everything the scan
-/// collected: protocols, cipher and key exchange sections, and the HTTP
-/// response when one was retrieved.
-///
-/// A failed or skipped feature probe or HTTP fetch leaves the affected
-/// verdicts as not tested.
-async fn vulnerability_section(
-    transport: &Transport,
-    (protocols, ciphers, key_exchange, http): (
-        &[ProtocolResult],
-        &[CipherSection],
-        &[KeyExchangeSection],
-        Option<&HttpResponse>,
-    ),
-    sni: Option<&str>,
-    probe: bool,
-) -> Vec<Vulnerability> {
-    let ciphers: Vec<CipherResult> = ciphers
-        .iter()
-        .filter_map(|s| s.outcome.as_ref().ok().cloned())
-        .collect();
-    let key_exchange = measured(key_exchange);
-    // The RFC 2817 upgrade probe speaks plaintext HTTP, which STARTTLS
-    // protocols are not.
-    let (features, upgrade) = if probe {
-        let upgrade = async {
-            match transport.starttls {
-                Some(_) => None,
-                None => Some(Box::pin(probe_tls_upgrade(transport, sni)).await),
-            }
-        };
-        let (features, upgrade) =
-            tokio::join!(Box::pin(probe_features(transport, &ciphers, sni)), upgrade);
-        (features.ok(), upgrade)
-    } else {
-        (None, None)
-    };
-    assess_vulnerabilities(
-        protocols,
-        &ciphers,
-        &key_exchange,
-        features.as_ref(),
-        http,
-        upgrade.as_deref(),
-    )
-}
-
-/// Sends unusual but valid `ClientHello`s at the best offered version.
-///
-/// A probe error becomes an informational `intolerance.error` finding.
-async fn intolerance_section(
-    transport: &Transport,
-    ciphers: &[CipherSection],
-    sni: Option<&str>,
-) -> (Result<Intolerance, String>, Vec<Finding>) {
-    let ciphers: Vec<CipherResult> = ciphers
-        .iter()
-        .filter_map(|s| s.outcome.as_ref().ok().cloned())
-        .collect();
-    match probe_intolerance(transport, &ciphers, sni).await {
-        Ok(result) => {
-            let findings = intolerance_findings(&result);
-            (Ok(result), findings)
-        }
-        Err(e) => {
-            let finding = Finding::new(
-                "intolerance.error",
-                Severity::Info,
-                format!("ClientHello tolerance could not be tested: {e}"),
-            );
-            (Err(e.to_string()), vec![finding])
-        }
-    }
-}
-
-/// The key exchange results that were measured without error.
-fn measured(sections: &[KeyExchangeSection]) -> Vec<KeyExchangeResult> {
-    sections
-        .iter()
-        .filter_map(|s| s.outcome.as_ref().ok().cloned())
-        .collect()
-}
-
-/// Probes extended master secret, the downgrade sentinel, session tickets
-/// and 0-RTT.
-///
-/// A probe error becomes an informational `handshake.error` finding.
-async fn details_section(
-    transport: &Transport,
-    ciphers: &[CipherSection],
-    sni: Option<&str>,
-) -> (Result<HandshakeDetails, String>, Vec<Finding>) {
-    let ciphers: Vec<CipherResult> = ciphers
-        .iter()
-        .filter_map(|s| s.outcome.as_ref().ok().cloned())
-        .collect();
-    match probe_details(transport, &ciphers, sni).await {
-        Ok(result) => {
-            let findings = details_findings(&result);
-            (Ok(result), findings)
-        }
-        Err(e) => {
-            let finding = Finding::new(
-                "handshake.error",
-                Severity::Info,
-                format!("handshake details could not be probed: {e}"),
-            );
-            (Err(e.to_string()), vec![finding])
-        }
     }
 }
 
@@ -1627,116 +1150,5 @@ mod tests {
         let cli = Cli::try_parse_from(["testls", "--file", dir.to_str().unwrap()]).unwrap();
         assert_eq!(targets(&cli).unwrap_err(), "no targets given");
         std::fs::remove_file(&dir).unwrap();
-    }
-
-    /// A failed cipher enumeration is reported in the key exchange section
-    /// without probing the server.
-    #[tokio::test]
-    async fn key_exchange_after_cipher_error() {
-        // Nothing listens on port 9 of the discard address; no probe is sent.
-        let transport = Transport::new(SocketAddr::from(([127, 0, 0, 1], 9)));
-        let ciphers = CipherSection {
-            version: ProtocolVersion::TLS12,
-            outcome: Err("timed out".to_owned()),
-        };
-        let kx = key_exchange_section(&transport, &ciphers, None).await;
-        assert_eq!(kx.version, ProtocolVersion::TLS12);
-        assert_eq!(
-            kx.outcome.as_ref().unwrap_err(),
-            "cipher enumeration failed"
-        );
-        assert_eq!(kx_findings(&kx)[0].id, "group.error");
-    }
-
-    /// Without a certificate chain the revocation check reports why.
-    #[tokio::test]
-    async fn revocation_without_chain() {
-        let transport = Transport::new(SocketAddr::from(([127, 0, 0, 1], 9)));
-        let (section, findings) = revocation_section(&transport, None, false).await;
-        assert_eq!(
-            section.unwrap_err(),
-            "certificate chain could not be retrieved"
-        );
-        assert_eq!(findings[0].id, "revocation.error");
-        let (section, findings) = revocation_section(&transport, Some(&[]), false).await;
-        assert_eq!(section.unwrap_err(), "empty certificate chain");
-        assert_eq!(findings[0].severity, Severity::Info);
-    }
-
-    /// A failed HTTP fetch becomes an informational finding.
-    #[tokio::test]
-    async fn http_error_is_info() {
-        // Nothing listens on port 9 of the discard address.
-        let transport = Transport::new(SocketAddr::from(([127, 0, 0, 1], 9)));
-        let (http, findings) = http_section(&transport, None).await;
-        assert!(http.is_err());
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].id, "http.error");
-        assert_eq!(findings[0].severity, Severity::Info);
-    }
-
-    /// A failed handshake feature probe leaves its verdicts untested.
-    #[tokio::test]
-    async fn vulnerabilities_without_features() {
-        let transport = Transport::new(SocketAddr::from(([127, 0, 0, 1], 9)));
-        let protocols = [ProtocolResult {
-            version: ProtocolVersion::TLS12,
-            support: ProtocolSupport::Supported,
-        }];
-        let ciphers = [CipherSection {
-            version: ProtocolVersion::TLS12,
-            outcome: Ok(CipherResult {
-                version: ProtocolVersion::TLS12,
-                suites: vec![0xc02f],
-                order: testls_probe::CipherOrder::Server,
-            }),
-        }];
-        let measured = (&protocols[..], &ciphers[..], &[][..], None);
-        let list = vulnerability_section(&transport, measured, None, true).await;
-        let crime = list.iter().find(|v| v.id == "crime").expect("crime");
-        assert_eq!(crime.status, testls_checks::VulnStatus::NotTested);
-        assert_eq!(vulnerability_findings(&list), vec![]);
-    }
-
-    /// A failed tolerance probe is reported as an info finding.
-    #[tokio::test]
-    async fn intolerance_error_is_info() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        drop(listener);
-        let ciphers = [CipherSection {
-            version: ProtocolVersion::TLS12,
-            outcome: Ok(CipherResult {
-                version: ProtocolVersion::TLS12,
-                suites: vec![0xc02f],
-                order: testls_probe::CipherOrder::Server,
-            }),
-        }];
-        let (section, findings) = intolerance_section(&Transport::new(addr), &ciphers, None).await;
-        assert!(section.is_err());
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].id, "intolerance.error");
-        assert_eq!(findings[0].severity, Severity::Info);
-    }
-
-    /// A failed handshake details probe is reported as an info finding.
-    #[tokio::test]
-    async fn details_error_is_info() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        drop(listener);
-        let ciphers = [CipherSection {
-            version: ProtocolVersion::TLS12,
-            outcome: Ok(CipherResult {
-                version: ProtocolVersion::TLS12,
-                suites: vec![0xc02f],
-                order: testls_probe::CipherOrder::Server,
-            }),
-        }];
-        let (section, findings) = details_section(&Transport::new(addr), &ciphers, None).await;
-        assert!(section.is_err());
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].id, "handshake.error");
-        assert_eq!(findings[0].severity, Severity::Info);
     }
 }
