@@ -65,8 +65,11 @@ if `gh` is allowed); update it when a session ends.
 
 1. v0.5.0 released (tag, `release.yml`, packages PR #140 merged).
    All 6 crates on crates.io at 0.5.0. Maintainer: Marketplace tick.
-2. v0.6 web service (`testls serve`) in PLAN.md; ask the maintainer design
-   questions first.
+2. v0.6 web service: scope settled (#91, #92; branch
+   `docs/web-service-design`). Maintainer supplied dashboard CSS (own
+   project, reuse OK; re-ask to paste if needed). Next: PR 1 = extract scan
+   pipeline from `main.rs` into a library fn with progress callback; then
+   `testls-server` skeleton. Next decision number: **#93**.
 3. Backlog: intrusive checks (`--intrusive`: Heartbleed, CCS injection,
    Ticketbleed, ROBOT; a remote branch `feat/intrusive-checks` exists, not
    ours, check with the maintainer), `--delay`, `--parallel`.
