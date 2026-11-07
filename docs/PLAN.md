@@ -140,12 +140,27 @@ Two connection paths:
 - [x] Codecov Test Analytics (failed and flaky tests in the PR comment)
 - [x] Released as v0.5.0 (intrusive checks moved to the backlog, #90)
 
-### v0.6 — Web service
-- `testls serve`: axum, binds 127.0.0.1 by default
-- REST: `POST /scans`, `GET /scans/{id}`, `GET /scans/{id}/events` (SSE)
-- Embedded SPA (static assets via `include_bytes!`/rust-embed)
-- Safety: token auth when binding non-loopback, private/link-local target
-  blocking toggle, concurrency + rate limits, scan timeouts
+### v0.6 — Web service (one-off scanner UI, #91)
+- [ ] Move the scan pipeline out of `main.rs` into a library function the
+  CLI and server share (progress callback per section)
+- [ ] `testls-server` crate: axum, `testls serve`, binds 127.0.0.1 by default
+- [ ] REST: `POST /scans`, `GET /scans`, `GET /scans/{id}`,
+  `GET /scans/{id}/events` (SSE), `GET /scans/{id}/report?format=…`
+  (existing formats)
+- [ ] In-memory history: bounded list of recent scans, lost on restart
+- [ ] Embedded UI (vanilla JS + CSS, no build step, #92): scan form
+  (target, port, STARTTLS, profile, policies, SNI), live section progress,
+  report (grade, severity stats strip as filter, findings table, `explain`
+  drawer, sections incl. certificate expiry bar), history sidebar, export
+- [ ] Safety: token auth when binding non-loopback, private/link-local target
+  blocking toggle, concurrency + rate limits, scan timeouts; strict CSP, no
+  `innerHTML` for scanned text
+
+### v0.7 — Monitoring (sketch)
+- Target groups with owners, expiry dashboard, scheduled rescans with diff
+  against the previous scan, persistent storage (format open)
+- Ideas: compare two scans, batch/CIDR/`--mx` in the UI, webhooks on grade
+  drop or expiry, Prometheus `/metrics`, OpenAPI spec
 
 ## Testing strategy
 
@@ -277,3 +292,5 @@ None at the moment (default profile and politeness settled in #88, #89).
 | 88 | Default profile stays as is: every non-intrusive probe of the target; revocation lookups and all addresses only with `full`, intrusive checks never by default. Target: under 30 s against a responsive server | Measured 3–11 s on public sites; network fetches to third parties and extra addresses are opt-in |
 | 89 | Politeness: probes run sequentially, one connection at a time per target, no retries, targets one after another (amends #8; the bounded parallelism was never built). `--delay` and `--parallel` are in the backlog | Sequential scans are gentle on servers and IDS and fast enough (#88); parallelism can come back when a need shows |
 | 90 | v0.5.0 ships without the intrusive checks (Heartbleed, CCS injection, Ticketbleed, ROBOT behind `--intrusive`); they move to the backlog. Amends #34 | Everything else planned for v0.5 is done and useful now; the intrusive probes send attack traffic, need their own design and test servers, and should not hold back the release |
+| 91 | v0.6 is a one-off scanner UI (scan form, live progress, report, export) with in-memory history only; groups, owners, scheduled rescans and persistence move to a v0.7 monitoring milestone | A useful UI ships sooner and the REST/SSE core gets settled before storage and scheduling are designed on top of it |
+| 92 | The UI is vanilla JavaScript (ES modules) and CSS embedded in the binary, no npm or build step; the look adapts the maintainer's dark dashboard style (design tokens, status pills, stats strip, detail drawer), reused with permission. Severities map to the token colours. Scanned text is set with `textContent` only, under a CSP without inline scripts | No Node toolchain in CI, release or `cargo deny`; a small app does not need a framework, and a strict CSP plus no HTML injection keeps server-controlled text from running as script |
