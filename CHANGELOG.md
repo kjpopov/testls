@@ -6,6 +6,12 @@ All notable changes to `testls` are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- New library crate `testls-scan` runs the whole scan pipeline and reports
+  each finished section as a typed event; the CLI is built on it and its
+  output is unchanged. It is the base for the v0.6 web service.
+
 ## [0.5.0] - 2026-10-30
 
 STARTTLS for mail, FTP, XMPP, LDAP and database servers, `--mx`, BREACH,
