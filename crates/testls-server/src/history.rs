@@ -161,6 +161,17 @@ impl History {
             r.touch();
         });
     }
+
+    /// Marks a scan failed with the reason if it is still running.
+    pub fn abort(&self, id: u64, error: String) {
+        self.with(id, |r| {
+            if r.status == Status::Running {
+                r.status = Status::Failed;
+                r.error = Some(error);
+                r.touch();
+            }
+        });
+    }
 }
 
 #[cfg(test)]
@@ -208,5 +219,19 @@ mod tests {
         assert_eq!(sections, [section("one")]);
         assert_eq!(error.as_deref(), Some("boom"));
         assert!(history.subscribe(99).is_none());
+    }
+
+    /// Aborting fails a running scan and leaves an ended one alone.
+    #[test]
+    fn aborts() {
+        let history = History::new(4);
+        let running = history.insert("a:443".into(), String::new(), 0).unwrap();
+        let ended = history.insert("b:443".into(), String::new(), 0).unwrap();
+        history.fail(ended, "boom".into());
+        history.abort(running, "gone".into());
+        history.abort(ended, "gone".into());
+        let state = |id| history.with(id, |r| (r.status, r.error.clone())).unwrap();
+        assert_eq!(state(running), (Status::Failed, Some("gone".into())));
+        assert_eq!(state(ended), (Status::Failed, Some("boom".into())));
     }
 }

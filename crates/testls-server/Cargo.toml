@@ -21,6 +21,7 @@ testls-scan.workspace = true
 tokio = { workspace = true, features = ["net", "sync", "time"] }
 
 [dev-dependencies]
+rustls.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 tower.workspace = true
 

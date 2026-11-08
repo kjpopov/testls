@@ -34,7 +34,7 @@ testls-report.workspace = true
 testls-scan.workspace = true
 testls-server.workspace = true
 testls-wire.workspace = true
-tokio = { workspace = true, features = ["macros", "rt", "net", "signal"] }
+tokio = { workspace = true, features = ["macros", "rt", "net", "signal", "sync", "time"] }
 toml.workspace = true
 
 [dev-dependencies]

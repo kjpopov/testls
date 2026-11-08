@@ -422,10 +422,19 @@ async fn main() -> ExitCode {
     }
 }
 
-/// Runs `testls serve` until Ctrl-C; exit code 2 if it cannot start.
+/// How long `testls serve` waits for open connections after the first
+/// interrupt before it stops anyway.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+
+/// Runs `testls serve` until interrupted; exit code 2 if it cannot start,
+/// 130 if a second interrupt cut the shutdown short.
+///
+/// Exits the process directly once serving ends: dropping the runtime would
+/// wait for blocking work such as a hung name lookup, defeating the grace
+/// period.
 async fn serve_command(args: &ServeArgs) -> ExitCode {
     match serve(args).await {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => std::process::exit(code),
         Err(e) => {
             eprintln!("error: {e}");
             ExitCode::from(2)
@@ -433,23 +442,91 @@ async fn serve_command(args: &ServeArgs) -> ExitCode {
     }
 }
 
-/// Builds the service settings, binds the listener and serves until Ctrl-C.
-async fn serve(args: &ServeArgs) -> Result<(), String> {
+/// Builds the service settings, binds the listener and serves until
+/// interrupted. The first interrupt starts a graceful shutdown that waits
+/// up to [`SHUTDOWN_GRACE`] for open connections; a second one stops at
+/// once.
+async fn serve(args: &ServeArgs) -> Result<i32, String> {
     let config = server_config(args)?;
     let listener = tokio::net::TcpListener::bind(args.listen)
         .await
         .map_err(|e| format!("cannot listen on {}: {e}", args.listen))?;
     let addr = listener.local_addr().map_err(|e| e.to_string())?;
+    let mut interrupts = Interrupts::new().map_err(|e| format!("cannot watch for signals: {e}"))?;
     eprintln!("testls serve: listening on http://{addr}");
     if let (Some(token), None) = (&config.token, &args.token_file) {
         eprintln!("testls serve: bearer token {token}");
     }
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let shutdown = async {
-        let _ = tokio::signal::ctrl_c().await;
+        let _ = stopped.await;
     };
-    testls_server::serve(listener, config, shutdown)
-        .await
-        .map_err(|e| e.to_string())
+    let server = testls_server::serve(listener, config, shutdown);
+    tokio::pin!(server);
+    tokio::select! {
+        result = &mut server => return result.map(|()| 0).map_err(|e| e.to_string()),
+        () = interrupts.next() => {}
+    }
+    eprintln!(
+        "testls serve: shutting down, waiting up to {}s for open connections; interrupt again to stop now",
+        SHUTDOWN_GRACE.as_secs()
+    );
+    let _ = stop.send(());
+    tokio::select! {
+        result = server => result.map(|()| 0).map_err(|e| e.to_string()),
+        () = interrupts.next() => Ok(130),
+        () = tokio::time::sleep(SHUTDOWN_GRACE) => {
+            eprintln!("testls serve: connections still open, stopping anyway");
+            Ok(0)
+        }
+    }
+}
+
+/// Watches for the signals that stop `testls serve`: SIGINT and SIGTERM on
+/// Unix, Ctrl-C on Windows. Created before the service announces itself,
+/// so an early signal is not lost to the default handler.
+#[derive(Debug)]
+struct Interrupts {
+    /// SIGINT stream.
+    #[cfg(unix)]
+    int: tokio::signal::unix::Signal,
+    /// SIGTERM stream.
+    #[cfg(unix)]
+    term: tokio::signal::unix::Signal,
+    /// Ctrl-C stream.
+    #[cfg(windows)]
+    ctrl_c: tokio::signal::windows::CtrlC,
+}
+
+impl Interrupts {
+    /// Installs the signal handlers.
+    fn new() -> std::io::Result<Self> {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            Ok(Self {
+                int: signal(SignalKind::interrupt())?,
+                term: signal(SignalKind::terminate())?,
+            })
+        }
+        #[cfg(windows)]
+        {
+            Ok(Self {
+                ctrl_c: tokio::signal::windows::ctrl_c()?,
+            })
+        }
+    }
+
+    /// Completes on the next signal.
+    async fn next(&mut self) {
+        #[cfg(unix)]
+        tokio::select! {
+            _ = self.int.recv() => {}
+            _ = self.term.recv() => {}
+        }
+        #[cfg(windows)]
+        self.ctrl_c.recv().await;
+    }
 }
 
 /// Service settings from the `serve` options. A token is read from

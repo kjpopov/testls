@@ -201,3 +201,7 @@ Safety:
   memory only.
 - The service speaks plain HTTP. Beyond loopback, put it behind a TLS
   reverse proxy or tunnel so the token is not sent in the clear.
+
+Ctrl-C (and SIGTERM on Unix) stops the service after open connections
+close. If they are still open after 10 seconds it stops anyway with exit
+code 0. A second signal stops it at once with exit code 130.
