@@ -270,7 +270,8 @@ fn ends_in_number(name: &str) -> bool {
 /// global unicast `2000::/3`. IPv4-mapped (RFC 4291 §2.5.5.2) and NAT64
 /// well-known-prefix (RFC 6052 §2.1) addresses are judged by their embedded
 /// IPv4 address; 6to4 and Teredo prefixes are blocked.
-fn public_address(ip: IpAddr) -> bool {
+#[must_use]
+pub fn public_address(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
             let [a, b, c, _] = ip.octets();
@@ -289,10 +290,8 @@ fn public_address(ip: IpAddr) -> bool {
             if let Some(v4) = ip.to_ipv4_mapped() {
                 return public_address(IpAddr::V4(v4));
             }
-            let octets = ip.octets();
-            if octets[..12] == [0, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0] {
-                let embedded: [u8; 4] = octets[12..].try_into().expect("four bytes");
-                return public_address(IpAddr::V4(embedded.into()));
+            if let [0, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0, a, b, c, d] = ip.octets() {
+                return public_address(IpAddr::V4([a, b, c, d].into()));
             }
             let [first, second, ..] = ip.segments();
             (0x2000..=0x3fff).contains(&first)

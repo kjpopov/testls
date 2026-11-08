@@ -49,6 +49,13 @@ reviews:
         section emits its event once, in report order, that a failed
         section degrades to an error result instead of aborting the scan,
         and that no output formatting or exit-code logic leaks in.
+    - path: "crates/testls-server/**/*.rs"
+      instructions: >-
+        The service is reachable from browsers. Check that every route goes
+        through the auth guard, that targets cannot reach private addresses
+        unless allowed (including through DNS answers), that limits on
+        concurrency, rate, history and scan time hold, and that scanned text
+        is never served as HTML or script.
     - path: "crates/testls/src/**/*.rs"
       instructions: >-
         Exit codes are a CLI contract: 0 = no findings at or above

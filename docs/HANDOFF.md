@@ -66,13 +66,13 @@ if `gh` is allowed); update it when a session ends.
 1. v0.5.0 released (tag, `release.yml`, packages PR #140 merged).
    All 6 crates on crates.io at 0.5.0. Maintainer: Marketplace tick.
 2. v0.6 web service: scope settled (#91, #92; branch
-   `docs/web-service-design`). Maintainer supplied dashboard CSS (own
-   project, reuse OK; re-ask to paste if needed). PR 1 done on branch
-   `feat/scan-library` (stacked on the docs branch): crate `testls-scan`
-   (#93) with `scan()`, typed `Event` callback, `Options`, `Scan`; CLI keeps
-   triage/output via `render_event`. Output verified identical to main;
-   MSRV and podman integration tests not run locally. Next: `testls-server`
-   skeleton (axum, SSE). Next decision number: **#94**.
+   merged). Maintainer supplied dashboard CSS (own project, reuse OK;
+   re-ask to paste if needed). PR #146 merged: crate `testls-scan` (#93).
+   Branch `feat/server`: target parsing moved to `testls-scan`, `Event`
+   gets `section()/version()/text()`, crate `testls-server` (REST + SSE +
+   bounded history + safety, #94, #95) and `testls serve`. Smoke-tested
+   against example.com. Next: embedded UI PR (vanilla JS, #92) served by
+   the same router with a strict CSP. Next decision number: **#96**.
 3. Backlog: intrusive checks (`--intrusive`: Heartbleed, CCS injection,
    Ticketbleed, ROBOT; a remote branch `feat/intrusive-checks` exists, not
    ours, check with the maintainer), `--delay`, `--parallel`.

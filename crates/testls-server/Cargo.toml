@@ -1,0 +1,28 @@
+[package]
+name = "testls-server"
+description = "HTTP service that runs testls scans and streams their progress."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+axum.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+testls-checks.workspace = true
+testls-probe.workspace = true
+testls-report.workspace = true
+testls-scan.workspace = true
+tokio = { workspace = true, features = ["net", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+tower.workspace = true
+
+[lints]
+workspace = true
