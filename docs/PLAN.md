@@ -157,6 +157,7 @@ Two connection paths:
 - [x] Safety: token auth when binding non-loopback, private/link-local target
   blocking toggle, concurrency + rate limits, scan timeouts; strict CSP, no
   `innerHTML` for scanned text (#95, #96)
+- [x] Released as v0.6.0
 
 ### v0.7 — Monitoring (sketch)
 - Target groups with owners, expiry dashboard, scheduled rescans with diff
