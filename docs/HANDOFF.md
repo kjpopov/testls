@@ -4,9 +4,10 @@ State left by the last agent session for the next one. Read this right
 after [AGENTS.md](../AGENTS.md) (then [agent-workflow.md](agent-workflow.md)
 if `gh` is allowed); update it when a session ends.
 
-## State (2026-10-30)
+## State (2026-11-08)
 
-- Latest release **v0.5.0** (release PR `chore/release-0.5.0`; tag,
+- Latest release **v0.6.0** (web service: `testls serve`, REST/SSE,
+  browser UI). Previous v0.5.0 (release PR `chore/release-0.5.0`; tag,
   GitHub release, container image `ghcr.io/kjpopov/testls:0.5.0`,
   Homebrew/Scoop in-repo via the packages PR). v0.4.2 was deleted (web UI
   mistake); skip it in compare links.
@@ -63,16 +64,15 @@ if `gh` is allowed); update it when a session ends.
 
 ## Next work
 
-1. v0.5.0 released (tag, `release.yml`, packages PR #140 merged).
-   All 6 crates on crates.io at 0.5.0. Maintainer: Marketplace tick.
-2. v0.6 web service: scope settled (#91, #92; branch
-   merged). Maintainer supplied dashboard CSS (own project, reuse OK;
-   re-ask to paste if needed). PR #146 merged: crate `testls-scan` (#93).
-   PRs #147/#148 merged: crate `testls-server` (REST + SSE + bounded
-   history + safety, #94, #95) and `testls serve`. Branch `feat/web-ui`:
-   embedded UI (`crates/testls-server/ui/`, #96) + `GET /explanations/{id}`;
-   checked with headless Edge screenshot against example.com. After merge
-   v0.6 items are all ticked: release v0.6.0 next (ask maintainer).
+1. v0.6.0 release in progress (release PR `chore/release-0.6.0`; then
+   tag, `release.yml`, packages PR). New crates `testls-scan` and
+   `testls-server` are not on crates.io yet: trusted publishing needs a
+   first manual publish by the maintainer, so the `crates-io` job will stop
+   at them. Maintainer: Marketplace tick.
+2. v0.6 web service done: `testls-scan` (#93), `testls-server` + `testls
+   serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
+   Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
+   v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
    Next decision number: **#97**.
 3. Backlog: intrusive checks (`--intrusive`: Heartbleed, CCS injection,
    Ticketbleed, ROBOT; a remote branch `feat/intrusive-checks` exists, not

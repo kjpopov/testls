@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.97"
 license = "MIT OR Apache-2.0"
@@ -13,13 +13,13 @@ authors = ["Krasimir Popov"]
 [workspace.dependencies]
 # Internal crates carry an exact version so they stay publishable; bump these
 # together with `workspace.package.version`.
-testls-wire = { version = "=0.5.0", path = "crates/testls-wire" }
-testls-data = { version = "=0.5.0", path = "crates/testls-data" }
-testls-probe = { version = "=0.5.0", path = "crates/testls-probe" }
-testls-checks = { version = "=0.5.0", path = "crates/testls-checks" }
-testls-report = { version = "=0.5.0", path = "crates/testls-report" }
-testls-scan = { version = "=0.5.0", path = "crates/testls-scan" }
-testls-server = { version = "=0.5.0", path = "crates/testls-server" }
+testls-wire = { version = "=0.6.0", path = "crates/testls-wire" }
+testls-data = { version = "=0.6.0", path = "crates/testls-data" }
+testls-probe = { version = "=0.6.0", path = "crates/testls-probe" }
+testls-checks = { version = "=0.6.0", path = "crates/testls-checks" }
+testls-report = { version = "=0.6.0", path = "crates/testls-report" }
+testls-scan = { version = "=0.6.0", path = "crates/testls-scan" }
+testls-server = { version = "=0.6.0", path = "crates/testls-server" }
 anstyle-query = "1.1"
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }
 clap = { version = "4.5", features = ["derive", "wrap_help"] }

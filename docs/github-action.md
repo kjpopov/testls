@@ -28,7 +28,7 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: kjpopov/testls@v0.5.0
+      - uses: kjpopov/testls@v0.6.0
         with:
           args: --fail-on medium example.com
 ```
@@ -41,30 +41,30 @@ when the scan itself fails (exit status 2).
 | Input | Default | Description |
 | --- | --- | --- |
 | `args` | empty | Arguments for `testls`, split on whitespace. No quoting or globbing. Empty installs `testls` only. |
-| `version` | `latest` | Release to install, such as `v0.5.0`. |
+| `version` | `latest` | Release to install, such as `v0.6.0`. |
 | `token` | `github.token` | Token used to look up the latest release. |
 
 ## Outputs
 
 | Output | Description |
 | --- | --- |
-| `version` | Installed release, such as `v0.5.0`. |
+| `version` | Installed release, such as `v0.6.0`. |
 
 ## Pin the version
 
-`uses: kjpopov/testls@v0.5.0` runs the action from that tag but, with
+`uses: kjpopov/testls@v0.6.0` runs the action from that tag but, with
 `version: latest`, installs the newest scanner. For reproducible runs, pin
 both, ideally the action to its commit SHA:
 
 ```yaml
-- uses: kjpopov/testls@<commit-sha> # v0.5.0
+- uses: kjpopov/testls@<commit-sha> # v0.6.0
   with:
-    version: v0.5.0
+    version: v0.6.0
     args: --fail-on medium example.com
 ```
 
 Tags are annotated; the commit SHA is on the `^{}` line of
-`git ls-remote https://github.com/kjpopov/testls 'refs/tags/v0.5.0*'`.
+`git ls-remote https://github.com/kjpopov/testls 'refs/tags/v0.6.0*'`.
 Dependabot updates both the SHA and the comment.
 
 ## Examples
@@ -81,7 +81,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: kjpopov/testls@v0.5.0
+      - uses: kjpopov/testls@v0.6.0
       - run: testls --format sarif --fail-on critical example.com > testls.sarif
       - uses: github/codeql-action/upload-sarif@v4
         if: always()
@@ -96,14 +96,14 @@ redirect, quoting or several commands.
 ### Job summary
 
 ```yaml
-- uses: kjpopov/testls@v0.5.0
+- uses: kjpopov/testls@v0.6.0
 - run: testls --format markdown --fail-on medium example.com >> "$GITHUB_STEP_SUMMARY"
 ```
 
 ### Test report (JUnit)
 
 ```yaml
-- uses: kjpopov/testls@v0.5.0
+- uses: kjpopov/testls@v0.6.0
 - run: testls --format junit --fail-on medium example.com > testls.xml
 - uses: actions/upload-artifact@v7
   if: always()
@@ -124,7 +124,7 @@ IP address or CIDR range):
 - uses: actions/checkout@v7
   with:
     persist-credentials: false
-- uses: kjpopov/testls@v0.5.0
+- uses: kjpopov/testls@v0.6.0
   with:
     args: --fail-on high --file hosts.txt
 ```
@@ -132,7 +132,7 @@ IP address or CIDR range):
 ### Compliance policy
 
 ```yaml
-- uses: kjpopov/testls@v0.5.0
+- uses: kjpopov/testls@v0.6.0
   with:
     args: --policy mozilla-intermediate --fail-on medium example.com
 ```
@@ -165,7 +165,7 @@ testls --format json example.com > baseline.json
 - uses: actions/checkout@v7
   with:
     persist-credentials: false
-- uses: kjpopov/testls@v0.5.0
+- uses: kjpopov/testls@v0.6.0
   with:
     args: --baseline baseline.json --fail-on low example.com
 ```
@@ -180,7 +180,7 @@ exists:
 - uses: actions/checkout@v7
   with:
     persist-credentials: false
-- uses: kjpopov/testls@v0.5.0
+- uses: kjpopov/testls@v0.6.0
   with:
     args: --ca-file certs/internal-ca.pem --resolve app.internal:443:10.0.0.5 app.internal
 ```

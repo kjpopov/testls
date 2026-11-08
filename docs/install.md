@@ -10,13 +10,13 @@ Download an archive from the
 against `SHA256SUMS` and put `testls` on your `PATH`. For Linux x86_64:
 
 ```bash
-base=https://github.com/kjpopov/testls/releases/download/v0.5.0
-curl -fLO "$base/testls-v0.5.0-x86_64-unknown-linux-musl.tar.gz"
+base=https://github.com/kjpopov/testls/releases/download/v0.6.0
+curl -fLO "$base/testls-v0.6.0-x86_64-unknown-linux-musl.tar.gz"
 curl -fLO "$base/SHA256SUMS"
 sha256sum --ignore-missing -c SHA256SUMS
-tar xzf testls-v0.5.0-x86_64-unknown-linux-musl.tar.gz
+tar xzf testls-v0.6.0-x86_64-unknown-linux-musl.tar.gz
 mkdir -p ~/.local/bin
-install -m 755 testls-v0.5.0-x86_64-unknown-linux-musl/testls ~/.local/bin/
+install -m 755 testls-v0.6.0-x86_64-unknown-linux-musl/testls ~/.local/bin/
 testls example.com   # needs ~/.local/bin on your PATH
 ```
 
@@ -24,7 +24,7 @@ On macOS use the `aarch64-apple-darwin` (or `x86_64-apple-darwin`) archive
 and check it with `shasum -a 256 --ignore-missing -c SHA256SUMS`. The
 binaries are not notarized yet; if Gatekeeper blocks them,
 clear the quarantine flag on the extracted binary before installing it, for
-example `xattr -d com.apple.quarantine testls-v0.5.0-aarch64-apple-darwin/testls`.
+example `xattr -d com.apple.quarantine testls-v0.6.0-aarch64-apple-darwin/testls`.
 
 ## Homebrew (macOS, Linux)
 

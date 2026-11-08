@@ -1560,7 +1560,7 @@ dependencies = [
 
 [[package]]
 name = "testls"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anstyle-query",
  "clap",
@@ -1581,7 +1581,7 @@ dependencies = [
 
 [[package]]
 name = "testls-checks"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "ring",
  "rustls-native-certs",
@@ -1596,11 +1596,11 @@ dependencies = [
 
 [[package]]
 name = "testls-data"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "testls-probe"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "getrandom 0.4.3",
  "hickory-resolver",
@@ -1614,7 +1614,7 @@ dependencies = [
 
 [[package]]
 name = "testls-report"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1625,7 +1625,7 @@ dependencies = [
 
 [[package]]
 name = "testls-scan"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "testls-checks",
  "testls-probe",
@@ -1636,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "testls-server"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "axum",
  "futures-util",
@@ -1654,7 +1654,7 @@ dependencies = [
 
 [[package]]
 name = "testls-wire"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "thiserror"
