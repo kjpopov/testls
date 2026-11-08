@@ -3,9 +3,9 @@
 //! Ignored by default; start the servers first (see
 //! `tests/servers/compose.yaml`), then run with `--ignored`.
 
-use std::io::ErrorKind;
+use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::TcpStream;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -673,4 +673,93 @@ fn other_starttls() {
         assert!(!s.has("cert.hostname_mismatch"), "{}", s.stdout);
         assert!(!s.has("cert.untrusted"), "{}", s.stdout);
     }
+}
+
+/// Sends one HTTP/1.1 request to `server` and returns status and body.
+/// Only for replies with a `Content-Length` body.
+fn http(server: &str, method: &str, path: &str, body: &str) -> (u16, String) {
+    let mut stream = TcpStream::connect(server).expect("connect to testls serve");
+    write!(
+        stream,
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .expect("send request");
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).expect("read reply");
+    let (head, body) = reply.split_once("\r\n\r\n").expect("reply head");
+    let status = head
+        .split(' ')
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .expect("status code");
+    (status, body.to_owned())
+}
+
+/// `testls serve` scans a local server to completion and offers its report
+/// in every format.
+#[test]
+#[ignore = "needs tests/servers running"]
+fn serve_scan() {
+    wait_for("127.0.0.1:14434");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_testls"))
+        .args(["serve", "--listen", "127.0.0.1:0", "--allow-private"])
+        .args(["--ca-file", CA_FILE])
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run testls serve");
+    let mut line = String::new();
+    BufReader::new(child.stderr.take().expect("stderr"))
+        .read_line(&mut line)
+        .expect("read listen address");
+    let server = line
+        .trim()
+        .rsplit("http://")
+        .next()
+        .expect("listen address")
+        .to_owned();
+
+    let (status, _) = http(
+        &server,
+        "POST",
+        "/scans",
+        r#"{"target":"127.0.0.1:14434","profile":"quick"}"#,
+    );
+    assert_eq!(status, 202);
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let scan = loop {
+        let (_, body) = http(&server, "GET", "/scans/1", "");
+        if !body.contains(r#""status":"running""#) {
+            break body;
+        }
+        assert!(Instant::now() < deadline, "scan did not finish");
+        sleep(Duration::from_millis(500));
+    };
+    assert!(scan.contains(r#""status":"done""#), "{scan}");
+    assert!(scan.contains(r#""section":"certificate""#), "{scan}");
+
+    let (status, text) = http(&server, "GET", "/scans/1/report?format=text", "");
+    assert_eq!(status, 200);
+    assert!(text.contains("TLSv1.3  offered"), "{text}");
+    assert!(text.contains("Grade"), "{text}");
+    for (format, needle) in [
+        ("json", "\"schema_version\""),
+        ("sarif", "\"runs\""),
+        ("junit", "<testsuites"),
+        ("markdown", "127.0.0.1:14434"),
+        ("csv", "127.0.0.1:14434"),
+        ("html", "<html"),
+    ] {
+        let (status, body) = http(
+            &server,
+            "GET",
+            &format!("/scans/1/report?format={format}"),
+            "",
+        );
+        assert_eq!(status, 200, "{format}");
+        assert!(body.contains(needle), "{format}: {body}");
+    }
+    child.kill().expect("stop testls serve");
+    child.wait().expect("reap testls serve");
 }

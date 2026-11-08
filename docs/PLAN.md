@@ -145,18 +145,18 @@ Two connection paths:
 - [x] Move the scan pipeline out of `main.rs` into a library function the
   CLI and server share (progress callback per section; crate
   `testls-scan`, #93)
-- [ ] `testls-server` crate: axum, `testls serve`, binds 127.0.0.1 by default
-- [ ] REST: `POST /scans`, `GET /scans`, `GET /scans/{id}`,
+- [x] `testls-server` crate: axum, `testls serve`, binds 127.0.0.1 by default
+- [x] REST: `POST /scans`, `GET /scans`, `GET /scans/{id}`,
   `GET /scans/{id}/events` (SSE), `GET /scans/{id}/report?format=…`
-  (existing formats)
-- [ ] In-memory history: bounded list of recent scans, lost on restart
+  (existing formats, #94)
+- [x] In-memory history: bounded list of recent scans, lost on restart
 - [ ] Embedded UI (vanilla JS + CSS, no build step, #92): scan form
   (target, port, STARTTLS, profile, policies, SNI), live section progress,
   report (grade, severity stats strip as filter, findings table, `explain`
   drawer, sections incl. certificate expiry bar), history sidebar, export
 - [ ] Safety: token auth when binding non-loopback, private/link-local target
   blocking toggle, concurrency + rate limits, scan timeouts; strict CSP, no
-  `innerHTML` for scanned text
+  `innerHTML` for scanned text (all done for the API, #95; UI part open)
 
 ### v0.7 — Monitoring (sketch)
 - Target groups with owners, expiry dashboard, scheduled rescans with diff
@@ -297,3 +297,5 @@ None at the moment (default profile and politeness settled in #88, #89).
 | 91 | v0.6 is a one-off scanner UI (scan form, live progress, report, export) with in-memory history only; groups, owners, scheduled rescans and persistence move to a v0.7 monitoring milestone | A useful UI ships sooner and the REST/SSE core gets settled before storage and scheduling are designed on top of it |
 | 92 | The UI is vanilla JavaScript (ES modules) and CSS embedded in the binary, no npm or build step; the look adapts the maintainer's dark dashboard style (design tokens, status pills, stats strip, detail drawer), reused with permission. Severities map to the token colours. Scanned text is set with `textContent` only, under a CSP without inline scripts | No Node toolchain in CI, release or `cargo deny`; a small app does not need a framework, and a strict CSP plus no HTML injection keeps server-controlled text from running as script |
 | 93 | The scan pipeline lives in a new crate `testls-scan`: `scan(transport, &Options, &TrustStore, on_event)` runs every section and returns a `Scan` with untriaged findings and the grade; `on_event` gets a typed `Event` borrowing each finished section. Triage (suppressions, baseline), output formats and exit codes stay in the CLI. `ScanProfile` and the revocation lookups move with it | The CLI and the server share one pipeline; typed events let the CLI render text and the server serialise JSON without a second code path, and keeping triage in the CLI leaves the library free of config-file concerns |
+| 94 | `testls-server` (axum 0.8, HTTP/1 only) runs each scan as a background task and records every section as `{section, version, text}` with the CLI's plain text; SSE sends one `section` event per section (id = index, `Last-Event-ID` resumes) and a final `done` event. `GET /scans/{id}` returns the sections plus the JSON report; `/report` renders every CLI format from the kept JSON and summary. Findings drop `ok` and sort as in the CLI; config suppressions and baselines do not apply | Plain-text sections let the UI show progress without a second renderer, and the finished JSON report carries the structured data; resumable SSE survives proxies dropping idle connections. Suppressions are per-repo CLI concerns |
+| 95 | Server safety: without a token only requests whose `Host` names loopback are served (blocks DNS rebinding); binding a non-loopback address generates a random 256-bit token unless `--token-file` gives one, compared in constant time. Targets are resolved once and the address checked against the special-purpose ranges (`public_address`, also used for revocation fetches) unless `--allow-private`. `serve` refuses a non-loopback listener without a token. Limits: concurrent scans (try-acquire, 429) and scans per minute, both checked before the DNS lookup; open progress streams; history size (oldest finished first); per-scan timeout; 16 KiB request bodies; policies deduplicated; SNI must be a host name (probes put it in plaintext `Host` headers). Every response sends `CSP default-src 'none'; frame-ancestors 'none'`, `nosniff`, `no-referrer`, `no-store`; the HTML report allows inline styles only | A scanner reachable from a browser is an SSRF and DoS tool for any web page; loopback-by-default plus Host checking covers local use, the token covers shared use, and resolving once means the checked address is the scanned one |

@@ -11,6 +11,12 @@ All notable changes to `testls` are listed here. The format follows
 - New library crate `testls-scan` runs the whole scan pipeline and reports
   each finished section as a typed event; the CLI is built on it and its
   output is unchanged. It is the base for the v0.6 web service.
+- `testls serve` runs an HTTP service (crate `testls-server`): start scans
+  with `POST /scans`, follow them live as server-sent events, list recent
+  scans and download reports in every output format. It listens on
+  127.0.0.1 by default, demands a bearer token on other addresses, refuses
+  private targets unless `--allow-private`, and limits concurrent scans,
+  scans per minute and scan time.
 
 ## [0.5.0] - 2026-10-30
 

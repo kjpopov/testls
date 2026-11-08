@@ -17,7 +17,7 @@ use serde::Deserialize;
 use testls_checks::Finding;
 use testls_report::json::Suppressed;
 
-use crate::target::{Target, TargetSpec};
+use testls_scan::target::{Target, TargetSpec};
 
 /// File looked up in the working directory when `--config` is not given.
 pub const DEFAULT_PATH: &str = ".testls.toml";

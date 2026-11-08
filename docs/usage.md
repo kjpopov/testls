@@ -159,3 +159,45 @@ testls --baseline baseline.json --fail-on low example.com
 A finding counts as known only if its severity has not risen since the
 baseline. Failed or incomplete measurements (`*.error`, `*.incomplete`,
 `cert.unparsable`) are never known.
+
+## Web service
+
+`testls serve` runs an HTTP service that starts scans and streams their
+progress:
+
+```sh
+testls serve                       # http://127.0.0.1:8080, no token
+testls serve --listen 0.0.0.0:8080 # prints a generated bearer token
+```
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/scans` | Start a scan; answers `202` with its `id` |
+| `GET` | `/scans` | Recent scans, newest first |
+| `GET` | `/scans/{id}` | Sections so far, error, JSON report once done |
+| `GET` | `/scans/{id}/events` | Server-sent events: `section` per section, then `done` |
+| `GET` | `/scans/{id}/report?format=FORMAT` | Report in any `--format`; `fail_on=` for summary formats |
+
+```sh
+curl -X POST localhost:8080/scans -H 'content-type: application/json' \
+  -d '{"target":"example.com","profile":"quick"}'
+curl -N localhost:8080/scans/1/events
+curl 'localhost:8080/scans/1/report?format=html' > report.html
+```
+
+The request body takes `target` (with optional `:port`), `starttls`,
+`sni`, `profile`, `revocation` and `policies`. Suppressions and baselines
+do not apply.
+
+Safety:
+
+- Without a token, only requests whose `Host` header names loopback are
+  served. On other addresses every request needs
+  `Authorization: Bearer TOKEN`; `--token-file` sets the token.
+- Targets on loopback, private and other special-purpose addresses are
+  refused unless `--allow-private`.
+- `--max-concurrent`, `--max-per-minute`, `--max-history`,
+  `--max-streams` and `--scan-timeout` bound the load; scans are kept in
+  memory only.
+- The service speaks plain HTTP. Beyond loopback, put it behind a TLS
+  reverse proxy or tunnel so the token is not sent in the clear.

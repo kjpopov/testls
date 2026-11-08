@@ -2,12 +2,11 @@
 
 mod baseline;
 mod config;
-mod target;
 
 use std::fmt::Write as _;
 use std::io::{IsTerminal as _, Write as _};
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -21,8 +20,8 @@ use testls_wire::ProtocolVersion;
 
 use baseline::Baseline;
 use config::Config;
-use target::{Host, ProxySpec, ResolveOverride, Target, TargetSpec};
 use testls_report::json::Suppressed;
+use testls_scan::target::{self, Host, ProxySpec, ResolveOverride, Target, TargetSpec};
 use testls_scan::{Event, Options, ScanProfile, unix_now};
 
 /// TLS/SSL scanner inspired by testssl.sh.
@@ -204,6 +203,72 @@ enum Command {
         #[arg(long, value_name = "DIR")]
         dir: Option<PathBuf>,
     },
+    /// Run an HTTP service that starts scans and streams their progress.
+    Serve(ServeArgs),
+}
+
+/// Options of `testls serve`.
+#[derive(Debug, clap::Args)]
+struct ServeArgs {
+    /// Address and port to listen on. On anything but loopback, every
+    /// request must carry a bearer token.
+    #[arg(long, default_value = "127.0.0.1:8080", value_name = "ADDR")]
+    listen: SocketAddr,
+
+    /// Read the bearer token from this file instead of generating one.
+    /// Required with a loopback address to demand a token there too.
+    #[arg(long, value_name = "FILE")]
+    token_file: Option<PathBuf>,
+
+    /// Allow scanning loopback, private and other special-purpose
+    /// addresses.
+    #[arg(long)]
+    allow_private: bool,
+
+    /// Most scans running at once.
+    #[arg(long, default_value_t = 4, value_name = "N",
+          value_parser = clap::value_parser!(u16).range(1..))]
+    max_concurrent: u16,
+
+    /// Most scans started per minute.
+    #[arg(long, default_value_t = 30, value_name = "N",
+          value_parser = clap::value_parser!(u16).range(1..))]
+    max_per_minute: u16,
+
+    /// Most scans kept in memory; the oldest finished one goes first.
+    #[arg(long, default_value_t = 100, value_name = "N",
+          value_parser = clap::value_parser!(u16).range(1..))]
+    max_history: u16,
+
+    /// Most progress streams open at once.
+    #[arg(long, default_value_t = 64, value_name = "N",
+          value_parser = clap::value_parser!(u16).range(1..))]
+    max_streams: u16,
+
+    /// Time limit for one scan, in seconds.
+    #[arg(long, default_value_t = 300, value_name = "SECONDS",
+          value_parser = clap::value_parser!(u64).range(1..))]
+    scan_timeout: u64,
+
+    /// TCP connect timeout per connection, in seconds.
+    #[arg(long, default_value_t = 5, value_name = "SECONDS",
+          value_parser = clap::value_parser!(u64).range(1..))]
+    connect_timeout: u64,
+
+    /// Read timeout per connection, in seconds.
+    #[arg(long, default_value_t = 10, value_name = "SECONDS",
+          value_parser = clap::value_parser!(u64).range(1..))]
+    read_timeout: u64,
+
+    /// Trust only the root certificates in this PEM file instead of the
+    /// bundled Mozilla roots.
+    #[arg(long, value_name = "FILE")]
+    ca_file: Option<PathBuf>,
+
+    /// Trust the operating system's root certificates instead of the
+    /// bundled Mozilla roots.
+    #[arg(long, conflicts_with = "ca_file")]
+    system_roots: bool,
 }
 
 /// Resolves the target to every distinct socket address it maps to, in
@@ -352,8 +417,71 @@ async fn main() -> ExitCode {
         Some(Command::Completions { shell }) => print_bytes(&completion_script(*shell)),
         Some(Command::Man { dir: None }) => print_bytes(&man_page()),
         Some(Command::Man { dir: Some(dir) }) => write_man_pages(dir),
+        Some(Command::Serve(args)) => serve_command(args).await,
         None => scan_all(&cli).await,
     }
+}
+
+/// Runs `testls serve` until Ctrl-C; exit code 2 if it cannot start.
+async fn serve_command(args: &ServeArgs) -> ExitCode {
+    match serve(args).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+/// Builds the service settings, binds the listener and serves until Ctrl-C.
+async fn serve(args: &ServeArgs) -> Result<(), String> {
+    let config = server_config(args)?;
+    let listener = tokio::net::TcpListener::bind(args.listen)
+        .await
+        .map_err(|e| format!("cannot listen on {}: {e}", args.listen))?;
+    let addr = listener.local_addr().map_err(|e| e.to_string())?;
+    eprintln!("testls serve: listening on http://{addr}");
+    if let (Some(token), None) = (&config.token, &args.token_file) {
+        eprintln!("testls serve: bearer token {token}");
+    }
+    let shutdown = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    testls_server::serve(listener, config, shutdown)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Service settings from the `serve` options. A token is read from
+/// `--token-file`, or generated when listening beyond loopback.
+fn server_config(args: &ServeArgs) -> Result<testls_server::Config, String> {
+    let mut config = testls_server::Config::default();
+    config.token = match &args.token_file {
+        Some(path) => {
+            let token = std::fs::read_to_string(path)
+                .map_err(|e| format!("cannot read {}: {e}", path.display()))?
+                .trim()
+                .to_owned();
+            if token.is_empty() {
+                return Err(format!("{} holds no token", path.display()));
+            }
+            Some(token)
+        }
+        None if args.listen.ip().is_loopback() => None,
+        None => {
+            Some(testls_server::random_token().map_err(|e| format!("cannot generate token: {e}"))?)
+        }
+    };
+    config.allow_private = args.allow_private;
+    config.max_concurrent = args.max_concurrent.into();
+    config.max_per_minute = args.max_per_minute.into();
+    config.max_history = args.max_history.into();
+    config.max_streams = args.max_streams.into();
+    config.scan_timeout = Duration::from_secs(args.scan_timeout);
+    config.connect_timeout = Duration::from_secs(args.connect_timeout);
+    config.read_timeout = Duration::from_secs(args.read_timeout);
+    config.trust_store = trust_store(args.ca_file.as_deref(), args.system_roots)?;
+    Ok(config)
 }
 
 /// Collects the targets from the command line and `--file`, in that order,
@@ -459,7 +587,8 @@ async fn scan_all(cli: &Cli) -> ExitCode {
     let ready = targets(cli).and_then(|t| {
         let config = Config::load(cli.config.as_deref())?;
         let baseline = cli.baseline.as_deref().map(Baseline::load).transpose()?;
-        Ok((t, trust_store(cli)?, (config, baseline.unwrap_or_default())))
+        let store = trust_store(cli.ca_file.as_deref(), cli.system_roots)?;
+        Ok((t, store, (config, baseline.unwrap_or_default())))
     });
     let (targets, store, (config, baseline)) = match ready {
         Ok(ready) => ready,
@@ -705,7 +834,7 @@ async fn scan(
     }
     let mut on_event = |event: Event<'_>| {
         if is_text {
-            print!("\n{}", render_event(event, paint));
+            print!("\n{}", event.text(paint));
         }
     };
     let scan = match testls_scan::scan(transport, &options, store, &mut on_event).await {
@@ -756,23 +885,6 @@ fn scan_options(cli: &Cli, scan_target: &Target) -> Options {
     options.revocation_allow_private = cli.revocation_allow_private;
     options.policies.clone_from(&cli.policies);
     options
-}
-
-/// Text rendering of one finished scan section.
-fn render_event(event: Event<'_>, paint: Painter) -> String {
-    match event {
-        Event::Protocols(p) => text::protocols(p, paint),
-        Event::Ciphers(s) => text::ciphers(s, paint),
-        Event::KeyExchange(s) => text::key_exchange(s, paint),
-        Event::PostQuantum(pq) => text::post_quantum(pq, paint),
-        Event::Certificate(c) => text::certificate(c, paint),
-        Event::Revocation(r) => text::revocation(r, paint),
-        Event::Http(h) => text::http(h, paint),
-        Event::HttpSkipped(reason) => format!("HTTP headers: {reason}"),
-        Event::Vulnerabilities(v) => text::vulnerabilities(v, paint),
-        Event::Intolerance(i) => text::intolerance(i, paint),
-        Event::Details(d) => text::details(d, paint),
-    }
 }
 
 /// Outcome of a scan that ran: the exit code from the findings and the
@@ -840,13 +952,13 @@ fn profile(
 /// Loads the trust store selected on the command line: a `--ca-file`
 /// bundle, the system roots, or the bundled Mozilla roots. Partial errors
 /// while reading the system roots are printed as warnings.
-fn trust_store(cli: &Cli) -> Result<TrustStore, String> {
-    if let Some(path) = &cli.ca_file {
+fn trust_store(ca_file: Option<&Path>, system_roots: bool) -> Result<TrustStore, String> {
+    if let Some(path) = ca_file {
         std::fs::read(path)
             .map_err(|e| e.to_string())
             .and_then(|pem| TrustStore::from_pem(&pem))
             .map_err(|e| format!("cannot load {}: {e}", path.display()))
-    } else if cli.system_roots {
+    } else if system_roots {
         let (store, warnings) =
             TrustStore::system().map_err(|e| format!("cannot load system roots: {e}"))?;
         for warning in warnings {
@@ -897,6 +1009,40 @@ mod tests {
         let cli = Cli::try_parse_from(["testls", "man", "--dir", "pages"]).expect("man --dir");
         assert!(matches!(cli.command, Some(Command::Man { dir: Some(_) })));
         Cli::command().debug_assert();
+    }
+
+    /// `serve` defaults to loopback without a token and generates one for
+    /// other addresses; a token file overrides both.
+    #[test]
+    fn serve_settings() {
+        /// Parses `serve` with `args`.
+        fn parse(args: &[&str]) -> ServeArgs {
+            let cli = Cli::try_parse_from(["testls", "serve"].iter().chain(args)).expect("serve");
+            match cli.command {
+                Some(Command::Serve(args)) => args,
+                other => panic!("{other:?}"),
+            }
+        }
+        let config = server_config(&parse(&[])).expect("loopback");
+        assert_eq!(config.token, None);
+        assert_eq!(config.max_concurrent, 4);
+        let config = server_config(&parse(&["--listen", "0.0.0.0:80"])).expect("any");
+        assert_eq!(config.token.map(|t| t.len()), Some(64));
+
+        let dir = std::env::temp_dir().join(format!("testls-serve-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("token");
+        std::fs::write(&file, "s3cret\n").expect("token");
+        let path = file.to_str().expect("UTF-8");
+        let config = server_config(&parse(&["--token-file", path])).expect("file");
+        assert_eq!(config.token.as_deref(), Some("s3cret"));
+        std::fs::write(&file, " \n").expect("empty");
+        let err = server_config(&parse(&["--token-file", path])).expect_err("empty");
+        assert!(err.contains("holds no token"), "{err}");
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+
+        assert!(Cli::try_parse_from(["testls", "serve", "--max-concurrent", "0"]).is_err());
+        assert!(Cli::try_parse_from(["testls", "serve", "example.com"]).is_err());
     }
 
     /// A scan needs a target; `explain` does not, and the two do not mix.

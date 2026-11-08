@@ -28,7 +28,7 @@ pub use certificates::{CertificateChain, fetch_certificates};
 pub use ciphers::{CipherOrder, CipherResult, enumerate_ciphers};
 pub use details::{HandshakeDetails, probe_details};
 pub use features::{HandshakeFeatures, probe_features};
-pub use fetch::{Fetcher, HttpBody};
+pub use fetch::{Fetcher, HttpBody, public_address};
 pub use groups::{KeyExchangeResult, probe_key_exchange};
 pub use http::{HttpResponse, fetch_http_headers};
 pub use intolerance::{Intolerance, probe_intolerance};

@@ -32,8 +32,9 @@ testls-checks.workspace = true
 testls-probe.workspace = true
 testls-report.workspace = true
 testls-scan.workspace = true
+testls-server.workspace = true
 testls-wire.workspace = true
-tokio = { workspace = true, features = ["macros", "rt", "net"] }
+tokio = { workspace = true, features = ["macros", "rt", "net", "signal"] }
 toml.workspace = true
 
 [dev-dependencies]
