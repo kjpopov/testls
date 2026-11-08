@@ -78,3 +78,19 @@ services:
       dockerfile: Dockerfile.mariadb
     image: localhost/testls-mariadb
     ports: ["127.0.0.1:13306:3306"]
+
+  # OpenSSL before/after the Heartbleed fix, accessible only on loopback.
+  heartbleed:
+    build:
+      context: .
+      dockerfile: Dockerfile.heartbleed
+    ports: ["127.0.0.1:14435:4433"]
+
+  heartbleed-patched:
+    build:
+      context: .
+      dockerfile: Dockerfile.heartbleed
+      args:
+        OPENSSL_RELEASE: OpenSSL_1_0_1g
+        OPENSSL_SHA256: 3eb596dbd060859f6ff9e13c29ca4e902dd582be872be3bd8034edbdc44653d0
+    ports: ["127.0.0.1:14436:4433"]

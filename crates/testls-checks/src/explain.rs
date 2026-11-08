@@ -545,6 +545,12 @@ const EXPLANATIONS: &[Explanation] = &[
         "RFC 7301 §3.2, alpaca-attack.com",
     ),
     entry(
+        "vuln.heartbleed",
+        "Heartbleed: heartbeat discloses memory",
+        "An opt-in malformed heartbeat received a correlated response containing more payload bytes than were supplied. Upgrade the affected TLS implementation and rotate potentially exposed secrets. Disclosed bytes are not reported.",
+        "CVE-2014-0160; RFC 6520 §4",
+    ),
+    entry(
         "vuln.opossum",
         "Opossum: plaintext HTTP can be upgraded to TLS",
         "A server that switches a plaintext HTTP connection to TLS on request (RFC 2817) lets a man-in-the-middle splice responses from that connection into a browser's HTTPS session. Disable the HTTP Upgrade to TLS and serve HTTPS on its own port only.",

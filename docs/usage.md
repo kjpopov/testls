@@ -198,8 +198,34 @@ The request body takes `target` (with optional `:port`), `starttls`,
 `sni`, `profile`, `revocation` and `policies`. Suppressions and baselines
 do not apply.
 
-Safety:
+<!-- coderabbit-ai-generated:v1 -->
 
+<!-- coderabbit-ai-generated-section:v1:cb26d83d4316daf391ce9f81614ea43619c04e0c1598de1a9902d633e760036c -->
+
+### Intrusive Heartbleed probe
+
+`testls --intrusive example.com` explicitly sends malformed heartbeat requests
+at measured TLS 1.0–1.2 versions. This first part of the intrusive-check series
+implements Heartbleed only; CCS injection, Ticketbleed and ROBOT remain in the
+backlog. No scan profile enables it automatically. It also runs with `quick`
+when explicitly requested. The server API does not expose this switch.
+
+Only a correlated response containing an extra payload byte confirms
+`vuln.heartbleed` (critical). The request limits disclosure to one byte beyond
+what was supplied; disclosed bytes are never included in reports. This is a
+pre-handshake probe: rejection, silence, missing heartbeat negotiation and
+errors remain **not tested**, and do not establish that a server is safe.
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:0d1035f04b63779356af53967b4eb04a399b690093904091057ae220dcd2fc43 -->
+
+### Service safety
+
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
 - Without a token, only requests whose `Host` header names loopback are
   served. On other addresses every request needs
   `Authorization: Bearer TOKEN`; `--token-file` sets the token.

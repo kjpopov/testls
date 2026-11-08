@@ -62,7 +62,22 @@ if `gh` is allowed); update it when a session ends.
   with the moderators). Keep generating `packaging/winget/X.Y.Z/` in the
   packages PR, but do not remind the maintainer each release.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:8ee8a4a669a565448ad298fbcf9e32f47584f4552e222e14cd85291c854158e7 -->
+
+## Intrusive checks implementation in progress
+
+- First PR in the maintainer-selected series: opt-in Heartbleed only,
+  `testls-probe/src/heartbleed.rs`, `Options::intrusive`, CLI `--intrusive`.
+  No profile or server API implicitly enables it. Correlated pre-handshake
+  disclosure is critical; rejection and silence remain not tested.
+- CCS injection, Ticketbleed and ROBOT still require later implementations.
+  Do not mark the complete intrusive-check backlog entry done.
+
 ## Next work
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
    packages PR #151 merged. New crates need a manual first publish plus a

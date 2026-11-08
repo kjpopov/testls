@@ -4,7 +4,21 @@ All notable changes to `testls` are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:f32959cd3015f8ae8fe2d71863308271fa9608ac5116cf3d2ff35a3c04a2508d -->
+
 ## [Unreleased]
+
+### Added
+
+- Explicit `--intrusive` pre-handshake Heartbleed probe for measured TLS
+  1.0–1.2 versions. Only correlated disclosure creates a critical finding;
+  refused or unanswered probes remain inconclusive. This is the first
+  part of the intrusive-check series.
+
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## [0.6.0] - 2026-11-08
 

@@ -73,6 +73,7 @@ fn vuln(
 /// Severity of the findings this module owns.
 fn severity(finding: &str) -> Option<Severity> {
     match finding {
+        "vuln.heartbleed" => Some(Severity::Critical),
         "vuln.crime" => Some(Severity::High),
         "vuln.renegotiation" | "vuln.opossum" => Some(Severity::Medium),
         "vuln.beast" | "vuln.logjam" | "vuln.fallback_scsv" | "vuln.raccoon" | "vuln.breach"
