@@ -422,10 +422,15 @@ async fn main() -> ExitCode {
     }
 }
 
-/// Runs `testls serve` until Ctrl-C; exit code 2 if it cannot start.
+/// How long `testls serve` waits for open connections after the first
+/// interrupt before it stops anyway.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+
+/// Runs `testls serve` until interrupted; exit code 2 if it cannot start,
+/// 130 if a second interrupt cut the shutdown short.
 async fn serve_command(args: &ServeArgs) -> ExitCode {
     match serve(args).await {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(e) => {
             eprintln!("error: {e}");
             ExitCode::from(2)
@@ -433,23 +438,86 @@ async fn serve_command(args: &ServeArgs) -> ExitCode {
     }
 }
 
-/// Builds the service settings, binds the listener and serves until Ctrl-C.
-async fn serve(args: &ServeArgs) -> Result<(), String> {
+/// Builds the service settings, binds the listener and serves until
+/// interrupted. The first interrupt starts a graceful shutdown that waits
+/// up to [`SHUTDOWN_GRACE`] for open connections; a second one stops at
+/// once.
+async fn serve(args: &ServeArgs) -> Result<ExitCode, String> {
     let config = server_config(args)?;
     let listener = tokio::net::TcpListener::bind(args.listen)
         .await
         .map_err(|e| format!("cannot listen on {}: {e}", args.listen))?;
     let addr = listener.local_addr().map_err(|e| e.to_string())?;
+    let mut interrupts = Interrupts::new().map_err(|e| format!("cannot watch for signals: {e}"))?;
     eprintln!("testls serve: listening on http://{addr}");
     if let (Some(token), None) = (&config.token, &args.token_file) {
         eprintln!("testls serve: bearer token {token}");
     }
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let shutdown = async {
-        let _ = tokio::signal::ctrl_c().await;
+        let _ = stopped.await;
     };
-    testls_server::serve(listener, config, shutdown)
-        .await
-        .map_err(|e| e.to_string())
+    let server = testls_server::serve(listener, config, shutdown);
+    tokio::pin!(server);
+    tokio::select! {
+        result = &mut server => return result.map(|()| ExitCode::SUCCESS).map_err(|e| e.to_string()),
+        () = interrupts.next() => {}
+    }
+    eprintln!(
+        "testls serve: shutting down, waiting up to {}s for open connections; interrupt again to stop now",
+        SHUTDOWN_GRACE.as_secs()
+    );
+    let _ = stop.send(());
+    tokio::select! {
+        result = server => result.map(|()| ExitCode::SUCCESS).map_err(|e| e.to_string()),
+        () = interrupts.next() => Ok(ExitCode::from(130)),
+        () = tokio::time::sleep(SHUTDOWN_GRACE) => {
+            eprintln!("testls serve: connections still open, stopping anyway");
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+/// Watches for the signals that stop `testls serve`: SIGINT and SIGTERM on
+/// Unix, Ctrl-C elsewhere. Created before the service announces itself,
+/// so an early signal is not lost to the default handler.
+#[derive(Debug)]
+struct Interrupts {
+    /// SIGINT stream.
+    #[cfg(unix)]
+    int: tokio::signal::unix::Signal,
+    /// SIGTERM stream.
+    #[cfg(unix)]
+    term: tokio::signal::unix::Signal,
+}
+
+impl Interrupts {
+    /// Installs the signal handlers.
+    fn new() -> std::io::Result<Self> {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            Ok(Self {
+                int: signal(SignalKind::interrupt())?,
+                term: signal(SignalKind::terminate())?,
+            })
+        }
+        #[cfg(not(unix))]
+        Ok(Self {})
+    }
+
+    /// Completes on the next signal.
+    async fn next(&mut self) {
+        #[cfg(unix)]
+        tokio::select! {
+            _ = self.int.recv() => {}
+            _ = self.term.recv() => {}
+        }
+        #[cfg(not(unix))]
+        if tokio::signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
 }
 
 /// Service settings from the `serve` options. A token is read from

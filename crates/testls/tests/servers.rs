@@ -710,9 +710,8 @@ fn serve_scan() {
         .spawn()
         .expect("run testls serve");
     let mut line = String::new();
-    BufReader::new(child.stderr.take().expect("stderr"))
-        .read_line(&mut line)
-        .expect("read listen address");
+    let mut stderr = BufReader::new(child.stderr.take().expect("stderr"));
+    stderr.read_line(&mut line).expect("read listen address");
     let server = line
         .trim()
         .rsplit("http://")
@@ -760,6 +759,16 @@ fn serve_scan() {
         assert_eq!(status, 200, "{format}");
         assert!(body.contains(needle), "{format}: {body}");
     }
-    child.kill().expect("stop testls serve");
-    child.wait().expect("reap testls serve");
+    // An interrupt shuts down cleanly, which also lets coverage data from
+    // the child be written.
+    let interrupted = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .expect("run kill");
+    assert!(interrupted.success());
+    let status = child.wait().expect("reap testls serve");
+    let mut rest = String::new();
+    stderr.read_to_string(&mut rest).expect("read stderr");
+    assert!(status.success(), "{status}: {rest}");
+    assert!(rest.contains("shutting down"), "{rest}");
 }

@@ -369,5 +369,38 @@ mod tests {
             skipped.text(Painter::new(false)),
             "HTTP headers: not over STARTTLS"
         );
+
+        let tls12 = ProtocolVersion(0x0303);
+        let ciphers = CipherSection {
+            version: tls12,
+            outcome: Err("reset".into()),
+        };
+        let kx = KeyExchangeSection {
+            version: tls12,
+            outcome: Err("reset".into()),
+        };
+        let failed = "unreachable".to_owned();
+        let certificate = Err(failed.clone());
+        let revocation = Err(failed.clone());
+        let http = Err(failed.clone());
+        let intolerance = Err(failed.clone());
+        let details = Err(failed);
+        let pq = post_quantum_readiness(&[]);
+        for (event, name, version) in [
+            (Event::Protocols(&[]), "protocols", None),
+            (Event::Ciphers(&ciphers), "ciphers", Some(tls12)),
+            (Event::KeyExchange(&kx), "key_exchange", Some(tls12)),
+            (Event::PostQuantum(&pq), "post_quantum", None),
+            (Event::Certificate(&certificate), "certificate", None),
+            (Event::Revocation(&revocation), "revocation", None),
+            (Event::Http(&http), "http", None),
+            (Event::Vulnerabilities(&[]), "vulnerabilities", None),
+            (Event::Intolerance(&intolerance), "intolerance", None),
+            (Event::Details(&details), "details", None),
+        ] {
+            assert_eq!(event.section(), name);
+            assert_eq!(event.version(), version, "{name}");
+            let _ = event.text(Painter::new(false));
+        }
     }
 }

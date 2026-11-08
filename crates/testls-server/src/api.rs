@@ -321,6 +321,10 @@ async fn run(
     options: Options,
     _permit: OwnedSemaphorePermit,
 ) {
+    let _unfinished = Unfinished {
+        shared: Arc::clone(&shared),
+        id,
+    };
     let mut on_event = {
         let shared = Arc::clone(&shared);
         move |event: Event<'_>| shared.history.push(id, section(event))
@@ -334,6 +338,25 @@ async fn run(
             id,
             format!("scan timed out after {}s", config.scan_timeout.as_secs()),
         ),
+    }
+}
+
+/// Fails a scan that is still running when its task ends, so a panic or a
+/// cancelled task never leaves the record running for good.
+#[derive(Debug)]
+struct Unfinished {
+    /// Service state.
+    shared: Arc<Shared>,
+    /// Scan the task runs.
+    id: u64,
+}
+
+impl Drop for Unfinished {
+    /// Marks the scan failed unless it already finished.
+    fn drop(&mut self) {
+        self.shared
+            .history
+            .abort(self.id, "scan stopped unexpectedly".to_owned());
     }
 }
 
@@ -920,6 +943,146 @@ mod tests {
         let (status, _, reply) = send(&app, Method::POST, "/scans", &[], Some(unresolvable)).await;
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
         assert!(reply.contains("last minute"), "{reply}");
+    }
+
+    /// Test certificate for `localhost`, shared with the probe crate.
+    const CERT: &[u8] = include_bytes!("../../testls-probe/src/testdata/localhost.cert.der");
+    /// Private key for [`CERT`].
+    const KEY: &[u8] = include_bytes!("../../testls-probe/src/testdata/localhost.key.der");
+
+    /// Starts a TLS server on a free loopback port that completes
+    /// handshakes and closes; failed handshakes from the probes are ignored.
+    fn tls_server() -> SocketAddr {
+        use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+        use rustls::{ServerConfig, ServerConnection, StreamOwned};
+        use std::io::Write;
+
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let config = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![CertificateDer::from(CERT.to_vec())],
+                PrivateKeyDer::try_from(KEY.to_vec()).unwrap(),
+            )
+            .unwrap();
+        let config = Arc::new(config);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let config = Arc::clone(&config);
+                std::thread::spawn(move || {
+                    let Ok(conn) = ServerConnection::new(config) else {
+                        return;
+                    };
+                    let mut tls = StreamOwned::new(conn, stream);
+                    let _ = tls.flush();
+                    tls.conn.send_close_notify();
+                    let _ = tls.flush();
+                });
+            }
+        });
+        addr
+    }
+
+    /// A scan of a working TLS server ends `done`, and its report comes
+    /// in every format with the matching content type.
+    #[tokio::test]
+    async fn finished_scan() {
+        let app = router(Config {
+            read_timeout: Duration::from_secs(2),
+            ..private()
+        });
+        let body = format!(
+            r#"{{"target":"{}","sni":"localhost","profile":"quick"}}"#,
+            tls_server()
+        );
+        let (status, _, _) = send(&app, Method::POST, "/scans", &[], Some(&body)).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let (_, _, stream) = send(&app, Method::GET, "/scans/1/events", &[], None).await;
+        assert!(stream.contains(r#""status":"done""#), "{stream}");
+        assert!(stream.contains(r#""section":"certificate""#), "{stream}");
+
+        let (_, _, scan) = send(&app, Method::GET, "/scans/1", &[], None).await;
+        let scan: serde_json::Value = serde_json::from_str(&scan).unwrap();
+        assert_eq!(scan["status"], "done");
+        assert_eq!(scan["report"]["schema_version"], 1);
+        let (_, _, list) = send(&app, Method::GET, "/scans", &[], None).await;
+        assert!(list.contains(r#""grade":"#), "{list}");
+
+        for (format, content_type, needle) in [
+            ("text", "text/plain; charset=utf-8", "Grade"),
+            ("json", "application/json", "\"schema_version\""),
+            ("sarif", "application/sarif+json", "\"runs\""),
+            ("junit", "application/xml", "<testsuites"),
+            ("markdown", "text/markdown; charset=utf-8", "127.0.0.1"),
+            ("csv", "text/csv; charset=utf-8", "127.0.0.1"),
+            ("html", "text/html; charset=utf-8", "<html"),
+        ] {
+            let uri = format!("/scans/1/report?format={format}&fail_on=critical");
+            let (status, headers, body) = send(&app, Method::GET, &uri, &[], None).await;
+            assert_eq!(status, StatusCode::OK, "{format}");
+            assert_eq!(headers[CONTENT_TYPE], content_type);
+            assert!(body.contains(needle), "{format}: {body}");
+            let policy = if format == "html" {
+                HTML_POLICY
+            } else {
+                API_POLICY
+            };
+            assert_eq!(headers[CONTENT_SECURITY_POLICY], policy, "{format}");
+        }
+        let (status, _, _) = send(&app, Method::GET, "/scans/1/report?fail_on=x", &[], None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    /// Host names are resolved, and a history full of running scans
+    /// refuses new ones.
+    #[tokio::test]
+    async fn history_full() {
+        let app = router(Config {
+            max_history: 1,
+            max_concurrent: 2,
+            read_timeout: Duration::from_secs(30),
+            ..private()
+        });
+        let addr = stalled().await;
+        let body = format!(r#"{{"target":"{addr}"}}"#);
+        let (status, _, _) = send(&app, Method::POST, "/scans", &[], Some(&body)).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        // The name resolves first; the full history refuses it after.
+        let name = format!(r#"{{"target":"localhost:{}"}}"#, addr.port());
+        let (status, _, reply) = send(&app, Method::POST, "/scans", &[], Some(&name)).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(reply.contains("history is full"), "{reply}");
+    }
+
+    /// A scan task that panics leaves its record failed rather than
+    /// running, so watchers finish and the history can evict it.
+    #[tokio::test]
+    async fn panicked_scan_fails() {
+        let shared = Arc::new(Shared::new(private()));
+        let id = shared
+            .history
+            .insert("a:443".into(), String::new(), 0)
+            .unwrap();
+        let guard = Unfinished {
+            shared: Arc::clone(&shared),
+            id,
+        };
+        let task = tokio::spawn(async move {
+            let _guard = guard;
+            panic!("parser bug");
+        });
+        assert!(task.await.unwrap_err().is_panic());
+        let (status, error) = shared
+            .history
+            .with(id, |r| (r.status, r.error.clone()))
+            .unwrap();
+        assert_eq!(status, Status::Failed);
+        assert_eq!(error.as_deref(), Some("scan stopped unexpectedly"));
+        assert!(format!("{shared:?}").contains("history"));
     }
 
     /// A scan that outlives `scan_timeout` fails and frees its slot.
