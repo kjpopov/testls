@@ -86,6 +86,10 @@ struct Cli {
     #[arg(long)]
     revocation: bool,
 
+    /// Send malformed Heartbleed requests (opt-in attack traffic).
+    #[arg(long)]
+    intrusive: bool,
+
     /// Let revocation lookups reach loopback, private, link-local and other
     /// non-public addresses, e.g. for an internal CA. The scanned server's
     /// certificate chooses these URLs, so they are refused by default, as are
@@ -959,6 +963,7 @@ fn scan_options(cli: &Cli, scan_target: &Target) -> Options {
         .map(str::to_owned);
     options.profile = cli.profile;
     options.revocation = cli.revocation;
+    options.intrusive = cli.intrusive;
     options.revocation_allow_private = cli.revocation_allow_private;
     options.policies.clone_from(&cli.policies);
     options
@@ -1086,6 +1091,20 @@ mod tests {
         let cli = Cli::try_parse_from(["testls", "man", "--dir", "pages"]).expect("man --dir");
         assert!(matches!(cli.command, Some(Command::Man { dir: Some(_) })));
         Cli::command().debug_assert();
+    }
+
+    /// Every profile requires the explicit intrusive flag.
+    #[test]
+    fn intrusive_is_opt_in() {
+        let target: Target = "example.com".parse().unwrap();
+        for profile in ["quick", "default", "full"] {
+            let cli = Cli::try_parse_from(["testls", "--profile", profile, "example.com"]).unwrap();
+            assert!(!scan_options(&cli, &target).intrusive);
+            let cli =
+                Cli::try_parse_from(["testls", "--profile", profile, "--intrusive", "example.com"])
+                    .unwrap();
+            assert!(scan_options(&cli, &target).intrusive);
+        }
     }
 
     /// `serve` defaults to loopback without a token and generates one for
