@@ -18,6 +18,10 @@ All notable changes to `testls` are listed here. The format follows
   private targets unless `--allow-private`, and limits concurrent scans,
   scans per minute and scan time. Ctrl-C (and SIGTERM on Unix) shuts it
   down gracefully; a second signal stops it at once.
+- `testls serve` includes a browser UI at `/`: scan form, live progress,
+  grade, findings with severity filter and explanations, certificate
+  expiry, history and report export. Plain JavaScript embedded in the
+  binary, served under a strict content security policy.
 
 ## [0.5.0] - 2026-10-30
 

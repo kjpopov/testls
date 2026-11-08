@@ -26,7 +26,7 @@ use testls_scan::{Event, Options, ScanProfile};
 use tokio::sync::{OwnedSemaphorePermit, watch};
 
 use crate::history::{Finished, Section, Status};
-use crate::{Config, Shared};
+use crate::{Config, Shared, ui};
 
 /// Policy for API responses: nothing may load, and no page may frame them.
 const API_POLICY: &str = "default-src 'none'; frame-ancestors 'none'";
@@ -44,6 +44,8 @@ pub(crate) fn routes(shared: Arc<Shared>) -> Router {
         .route("/scans/{id}", get(show))
         .route("/scans/{id}/events", get(events))
         .route("/scans/{id}/report", get(report))
+        .route("/explanations/{id}", get(explanation))
+        .merge(ui::routes())
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .layer(middleware::from_fn_with_state(Arc::clone(&shared), guard))
         .with_state(shared)
@@ -73,9 +75,16 @@ impl IntoResponse for ApiError {
 }
 
 /// Rejects unauthorised requests and adds security headers to every
-/// response.
+/// response. The UI files hold no scan data and a browser cannot send a
+/// token when it opens a page, so they skip the token check.
 async fn guard(State(shared): State<Arc<Shared>>, request: Request, next: Next) -> Response {
-    let response = match authorize(&shared.config, request.headers()) {
+    let open = shared.config.token.is_some() && ui::PATHS.contains(&request.uri().path());
+    let checked = if open {
+        Ok(())
+    } else {
+        authorize(&shared.config, request.headers())
+    };
+    let response = match checked {
         Ok(()) => next.run(request).await,
         Err(e) => {
             let unauthorized = e.0 == StatusCode::UNAUTHORIZED;
@@ -653,6 +662,19 @@ async fn report(
     Ok(response)
 }
 
+/// `GET /explanations/{id}`: why a finding matters and where its rule comes
+/// from, as `testls explain` prints it.
+async fn explanation(Path(id): Path<String>) -> Result<Json<serde_json::Value>, ApiError> {
+    let e = testls_checks::explain(&id)
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "no such finding id".to_owned()))?;
+    Ok(Json(serde_json::json!({
+        "id": e.id,
+        "title": e.title,
+        "rationale": e.rationale,
+        "reference": e.reference,
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     //! Unit tests for the request checks and handlers.
@@ -749,6 +771,61 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(headers[CONTENT_SECURITY_POLICY], API_POLICY);
+    }
+
+    /// The UI files come with their content policy, and without a token
+    /// even when the service needs one; the API behind them still asks.
+    #[tokio::test]
+    async fn ui_files() {
+        let app = router(Config {
+            token: Some("s3cret".to_owned()),
+            ..Config::default()
+        });
+        for (path, kind) in [
+            ("/", "text/html"),
+            ("/ui/app.js", "text/javascript"),
+            ("/ui/app.css", "text/css"),
+        ] {
+            let (status, headers, body) = send(
+                &app,
+                Method::GET,
+                path,
+                &[("host", "scanner.example")],
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{path}");
+            assert!(headers[CONTENT_TYPE].to_str().unwrap().starts_with(kind));
+            assert_eq!(headers[CONTENT_SECURITY_POLICY], ui::UI_POLICY);
+            assert_eq!(headers[X_CONTENT_TYPE_OPTIONS], "nosniff");
+            assert!(body.len() > 100, "{path}");
+        }
+        let (status, _, _) = send(&app, Method::GET, "/explanations/hsts.missing", &[], None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let local = router(Config::default());
+        let (status, _, _) = send(
+            &local,
+            Method::GET,
+            "/",
+            &[("host", "attacker.example")],
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "rebinding guard");
+    }
+
+    /// Finding explanations by id.
+    #[tokio::test]
+    async fn explanations() {
+        let app = router(Config::default());
+        let (status, _, body) =
+            send(&app, Method::GET, "/explanations/hsts.missing", &[], None).await;
+        assert_eq!(status, StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(body["id"], "hsts.missing");
+        assert_eq!(body["reference"], "RFC 6797");
+        let (status, _, _) = send(&app, Method::GET, "/explanations/nope", &[], None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     /// With a token, every request must carry it, whatever the host.
