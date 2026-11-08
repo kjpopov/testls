@@ -791,10 +791,7 @@ fn stop_server(mut child: std::process::Child, _stderr: impl Read) {
 fn heartbleed_server() {
     let ordinary = scan("127.0.0.1:14435", &["--profile", "quick"]);
     assert!(!ordinary.has("Heartbleed"));
-    let attack = scan(
-        "127.0.0.1:14435",
-        &["--profile", "quick", "--intrusive", "--read-timeout", "1"],
-    );
+    let attack = scan("127.0.0.1:14435", &["--profile", "quick", "--intrusive"]);
     assert!(attack.has("[vuln.heartbleed]"), "{}", attack.stdout);
     assert_eq!(attack.code, 1);
 }
@@ -803,10 +800,7 @@ fn heartbleed_server() {
 #[test]
 #[ignore = "needs tests/servers running"]
 fn heartbleed_patched_server() {
-    let scan = scan(
-        "127.0.0.1:14436",
-        &["--profile", "quick", "--intrusive", "--read-timeout", "1"],
-    );
+    let scan = scan("127.0.0.1:14436", &["--profile", "quick", "--intrusive"]);
     assert!(scan.has("Heartbleed"), "{}", scan.stdout);
     assert!(!scan.has("[vuln.heartbleed]"), "{}", scan.stdout);
     assert!(scan.line("Heartbleed").contains("not tested"));

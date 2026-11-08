@@ -97,7 +97,7 @@ if `gh` is allowed); update it when a session ends.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-   Next decision number: **#97**.
+   Next decision number: **#98**.
 3. Backlog: intrusive checks (`--intrusive`: Heartbleed, CCS injection,
    Ticketbleed, ROBOT; a remote branch `feat/intrusive-checks` exists, not
    ours, check with the maintainer), `--delay`, `--parallel`.
