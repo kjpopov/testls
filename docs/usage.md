@@ -170,6 +170,13 @@ testls serve                       # http://127.0.0.1:8080, no token
 testls serve --listen 0.0.0.0:8080 # prints a generated bearer token
 ```
 
+Open the address in a browser for the UI: a scan form (target, STARTTLS,
+profile, SNI, revocation, policies), live section progress, the grade,
+findings filterable by severity with an explanation per finding,
+certificate expiry, protocols, vulnerabilities, recent scans and report
+export. When the service needs a token the page asks for it and keeps it
+in the browser tab only.
+
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/scans` | Start a scan; answers `202` with its `id` |
@@ -177,6 +184,8 @@ testls serve --listen 0.0.0.0:8080 # prints a generated bearer token
 | `GET` | `/scans/{id}` | Sections so far, error, JSON report once done |
 | `GET` | `/scans/{id}/events` | Server-sent events: `section` per section, then `done` |
 | `GET` | `/scans/{id}/report?format=FORMAT` | Report in any `--format`; `fail_on=` for summary formats |
+| `GET` | `/explanations/{id}` | What `testls explain ID` prints, as JSON |
+| `GET` | `/` | Browser UI |
 
 ```sh
 curl -X POST localhost:8080/scans -H 'content-type: application/json' \

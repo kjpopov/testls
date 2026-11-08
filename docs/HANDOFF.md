@@ -68,11 +68,12 @@ if `gh` is allowed); update it when a session ends.
 2. v0.6 web service: scope settled (#91, #92; branch
    merged). Maintainer supplied dashboard CSS (own project, reuse OK;
    re-ask to paste if needed). PR #146 merged: crate `testls-scan` (#93).
-   Branch `feat/server`: target parsing moved to `testls-scan`, `Event`
-   gets `section()/version()/text()`, crate `testls-server` (REST + SSE +
-   bounded history + safety, #94, #95) and `testls serve`. Smoke-tested
-   against example.com. Next: embedded UI PR (vanilla JS, #92) served by
-   the same router with a strict CSP. Next decision number: **#96**.
+   PRs #147/#148 merged: crate `testls-server` (REST + SSE + bounded
+   history + safety, #94, #95) and `testls serve`. Branch `feat/web-ui`:
+   embedded UI (`crates/testls-server/ui/`, #96) + `GET /explanations/{id}`;
+   checked with headless Edge screenshot against example.com. After merge
+   v0.6 items are all ticked: release v0.6.0 next (ask maintainer).
+   Next decision number: **#97**.
 3. Backlog: intrusive checks (`--intrusive`: Heartbleed, CCS injection,
    Ticketbleed, ROBOT; a remote branch `feat/intrusive-checks` exists, not
    ours, check with the maintainer), `--delay`, `--parallel`.

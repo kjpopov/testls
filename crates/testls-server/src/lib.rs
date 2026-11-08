@@ -9,9 +9,12 @@
 //! | `GET` | `/scans/{id}` | One scan with its sections and JSON report |
 //! | `GET` | `/scans/{id}/events` | Progress as server-sent events |
 //! | `GET` | `/scans/{id}/report?format=` | Report in a CLI output format |
+//! | `GET` | `/explanations/{id}` | Explanation of a finding id |
+//! | `GET` | `/` | Browser UI (with `/ui/app.js` and `/ui/app.css`) |
 
 mod api;
 mod history;
+mod ui;
 
 use std::collections::VecDeque;
 use std::fmt::{self, Write as _};

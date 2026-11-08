@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>testls</title>
+<link rel="stylesheet" href="/ui/app.css">
+<script src="/ui/app.js" defer></script>
+</head>
+<body>
+<header>
+  <div class="logo">test<span>ls</span></div>
+  <div class="header-right">
+    <span id="status-line" class="status-line"></span>
+    <button id="token-button" type="button" class="ghost" hidden>Token</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="aside-title">Recent scans</div>
+    <div id="history" class="history"></div>
+    <div id="history-empty" class="aside-empty">No scans yet.</div>
+  </aside>
+
+  <main>
+    <form id="scan-form" class="card scan-form" autocomplete="off">
+      <div class="field wide">
+        <label for="target">Target</label>
+        <input id="target" name="target" required placeholder="example.com or example.com:8443" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="starttls">STARTTLS</label>
+        <select id="starttls" name="starttls"></select>
+      </div>
+      <div class="field">
+        <label for="profile">Profile</label>
+        <select id="profile" name="profile"></select>
+      </div>
+      <div class="field">
+        <label for="sni">SNI</label>
+        <input id="sni" name="sni" placeholder="target host name" spellcheck="false">
+      </div>
+      <div class="field">
+        <label class="check"><input id="revocation" type="checkbox"> Revocation</label>
+      </div>
+      <fieldset class="field wide policies">
+        <legend>Policies</legend>
+        <div id="policies" class="policy-list"></div>
+      </fieldset>
+      <div class="actions">
+        <button id="scan-button" type="submit">Scan</button>
+        <span id="form-error" class="form-error" role="alert"></span>
+      </div>
+    </form>
+
+    <section id="scan" class="scan" hidden>
+      <div class="main-top">
+        <div>
+          <h1 id="scan-target"></h1>
+          <div id="scan-meta" class="meta"></div>
+        </div>
+        <div class="main-top-right">
+          <span id="scan-state" class="pill"></span>
+          <div id="grade" class="grade" hidden></div>
+        </div>
+      </div>
+
+      <div id="scan-error" class="card error-box" hidden></div>
+
+      <div id="progress" class="card progress">
+        <div class="bar-track"><div id="progress-bar" class="bar-fill"></div></div>
+        <div id="progress-list" class="progress-list"></div>
+      </div>
+
+      <div id="report" hidden>
+        <div id="stats" class="stats-strip"></div>
+
+        <div class="main-top">
+          <h2>Findings</h2>
+          <div class="main-top-right">
+            <input id="search" type="search" class="search-box" placeholder="Filter findings" aria-label="Filter findings" spellcheck="false">
+            <select id="sort" class="sort-select" aria-label="Sort findings by">
+              <option value="severity">Severity</option>
+              <option value="id">Id</option>
+            </select>
+          </div>
+        </div>
+        <table class="findings">
+          <thead>
+            <tr><th>Severity</th><th>Id</th><th>Message</th></tr>
+          </thead>
+          <tbody id="findings"></tbody>
+        </table>
+        <div id="findings-empty" class="empty-state" hidden>No findings match.</div>
+
+        <h2>Certificate</h2>
+        <div id="certificate" class="card"></div>
+
+        <h2>Protocols and ciphers</h2>
+        <div id="protocols" class="card"></div>
+
+        <h2>Vulnerabilities</h2>
+        <div id="vulnerabilities" class="card"></div>
+
+        <h2>Grade reasons</h2>
+        <ul id="reasons" class="card reasons"></ul>
+
+        <div class="export">
+          <span>Export</span>
+          <div id="export" class="export-links"></div>
+        </div>
+      </div>
+
+      <details class="raw">
+        <summary>Text output</summary>
+        <pre id="text"></pre>
+      </details>
+    </section>
+
+    <div id="welcome" class="empty-state">
+      <p>Enter a host to scan its TLS setup.</p>
+    </div>
+  </main>
+</div>
+
+<dialog id="drawer" class="drawer" aria-labelledby="drawer-title">
+  <div class="drawer-inner">
+    <div class="drawer-head">
+      <h3 id="drawer-title"></h3>
+      <button id="drawer-close" type="button" class="ghost" aria-label="Close">×</button>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </div>
+</dialog>
+
+<dialog id="token-dialog" aria-labelledby="token-title">
+  <form id="token-form" method="dialog">
+    <h3 id="token-title">Bearer token</h3>
+    <p>This service needs the token printed by <code>testls serve</code>. It is kept in this tab only.</p>
+    <label for="token">Token</label>
+    <input id="token" type="password" autocomplete="off" required>
+    <div class="actions">
+      <button type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>
