@@ -16,8 +16,8 @@ All notable changes to `testls` are listed here. The format follows
   scans and download reports in every output format. It listens on
   127.0.0.1 by default, demands a bearer token on other addresses, refuses
   private targets unless `--allow-private`, and limits concurrent scans,
-  scans per minute and scan time. SIGINT or SIGTERM shuts it down
-  gracefully; a second signal stops it at once.
+  scans per minute and scan time. Ctrl-C (and SIGTERM on Unix) shuts it
+  down gracefully; a second signal stops it at once.
 
 ## [0.5.0] - 2026-10-30
 

@@ -5,8 +5,6 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, ChildStderr, Command, Stdio};
-use std::thread::sleep;
-use std::time::Duration;
 
 /// Starts `testls serve` on a free loopback port and returns the child,
 /// its stderr and the listen address.
@@ -97,7 +95,6 @@ fn second_interrupt_forces() {
     interrupt(&child);
     let seen = read_until(&mut stderr, "shutting down");
     assert!(seen.contains("shutting down"), "{seen}");
-    sleep(Duration::from_millis(200));
     interrupt(&child);
     let status = child.wait().expect("reap testls serve");
     assert_eq!(status.code(), Some(130), "{status}");
