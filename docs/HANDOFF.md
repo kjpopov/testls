@@ -64,11 +64,11 @@ if `gh` is allowed); update it when a session ends.
 
 ## Next work
 
-1. v0.6.0 release in progress (release PR `chore/release-0.6.0`; then
-   tag, `release.yml`, packages PR). New crates `testls-scan` and
-   `testls-server` are not on crates.io yet: trusted publishing needs a
-   first manual publish by the maintainer, so the `crates-io` job will stop
-   at them. Maintainer: Marketplace tick.
+1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
+   packages PR #151 merged. New crates need a manual first publish plus a
+   trusted-publishing entry by the maintainer before `release.yml` can
+   publish them (done for `testls-scan`, `testls-server`). Maintainer:
+   Marketplace tick.
 2. v0.6 web service done: `testls-scan` (#93), `testls-server` + `testls
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
