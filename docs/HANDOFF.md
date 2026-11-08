@@ -72,7 +72,16 @@ if `gh` is allowed); update it when a session ends.
   `testls-probe/src/heartbleed.rs`, `Options::intrusive`, CLI `--intrusive`.
   No profile or server API implicitly enables it. Correlated pre-handshake
   disclosure is critical; rejection and silence remain not tested.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:d82e77156a5694fb7efdb4f8cd5ec7ce600a8ddf9f610cd347d337748c7bb03a -->
+
+- PR #154 CI repair: terminate the pre-handshake exchange after the bounded
+  heartbeat to flush OpenSSL 1.0.1 buffered replies; scripted peers verify
+  the termination record and heartbeat followed by a fatal alert.
 - CCS injection, Ticketbleed and ROBOT still require later implementations.
+
+<!-- /coderabbit-ai-generated:v1 -->
   Do not mark the complete intrusive-check backlog entry done.
 
 ## Next work

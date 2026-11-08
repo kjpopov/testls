@@ -53,6 +53,14 @@ pub async fn probe_heartbleed(
         let mut request = vec![24, major, minor, 0, 35, 1, 0, 33];
         request.extend_from_slice(&marker);
         stream.write_all(&request).await.map_err(ProbeError::Io)?;
+        // OpenSSL 1.0.1 buffers small replies during the handshake. A
+        // server-only ServerHelloDone sent by the client ends this handshake
+        // with unexpected_message (RFC 5246 §7.4), flushing any pending
+        // heartbeat before the fatal alert. This adds no disclosure request.
+        stream
+            .write_all(&[22, major, minor, 0, 4, 14, 0, 0, 0])
+            .await
+            .map_err(ProbeError::Io)?;
         let body = heartbeat(&mut stream).await?;
         if disclosure(&body, &marker) {
             Ok(())
@@ -191,12 +199,19 @@ mod tests {
                 let request = read_record(&mut stream, Some(version)).await;
                 assert_eq!(&request[..3], &[1, 0, 33]);
                 assert_eq!(request.len(), 35);
+                // Withhold the small reply until the client terminates the
+                // handshake, modelling OpenSSL's buffered pre-handshake I/O.
+                let termination = read_record(&mut stream, Some(version)).await;
+                assert_eq!(termination, [14, 0, 0, 0]);
                 let response = if leak {
                     let mut body = vec![2, 0, 33];
                     body.extend_from_slice(&request[3..]);
                     body.push(42);
                     body.extend_from_slice(&[0; 16]);
-                    record(24, &body)
+                    let mut reply = record(24, &body);
+                    // OpenSSL flushes the heartbeat together with its alert.
+                    reply.extend_from_slice(&record(21, &[2, 10]));
+                    reply
                 } else {
                     record(21, &[2, 10])
                 };
