@@ -196,5 +196,8 @@ Safety:
   `Authorization: Bearer TOKEN`; `--token-file` sets the token.
 - Targets on loopback, private and other special-purpose addresses are
   refused unless `--allow-private`.
-- `--max-concurrent`, `--max-per-minute`, `--max-history` and
-  `--scan-timeout` bound the load; scans are kept in memory only.
+- `--max-concurrent`, `--max-per-minute`, `--max-history`,
+  `--max-streams` and `--scan-timeout` bound the load; scans are kept in
+  memory only.
+- The service speaks plain HTTP. Beyond loopback, put it behind a TLS
+  reverse proxy or tunnel so the token is not sent in the clear.

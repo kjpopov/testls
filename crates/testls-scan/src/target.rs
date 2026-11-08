@@ -16,6 +16,7 @@ pub enum Host {
 }
 
 impl fmt::Display for Host {
+    /// Writes the name, or the address with IPv6 in brackets.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Name(n) => f.write_str(n),
@@ -46,6 +47,7 @@ impl Target {
 }
 
 impl fmt::Display for Target {
+    /// Writes `host:port`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.host, self.port)
     }
@@ -56,6 +58,7 @@ impl fmt::Display for Target {
 pub struct ParseTargetError(String);
 
 impl fmt::Display for ParseTargetError {
+    /// Writes the reason.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
@@ -63,6 +66,7 @@ impl fmt::Display for ParseTargetError {
 
 impl std::error::Error for ParseTargetError {}
 
+/// A [`ParseTargetError`] with `msg`.
 fn err(msg: impl Into<String>) -> ParseTargetError {
     ParseTargetError(msg.into())
 }
@@ -301,6 +305,7 @@ impl ResolveOverride {
 impl std::str::FromStr for ResolveOverride {
     type Err = ParseTargetError;
 
+    /// Parses `HOST:PORT:ADDR[,ADDR...]`.
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let mut parts = input.trim().splitn(3, ':');
         let (Some(host), Some(port), Some(addrs)) = (parts.next(), parts.next(), parts.next())
@@ -336,6 +341,7 @@ pub struct ProxySpec(pub Target);
 impl std::str::FromStr for ProxySpec {
     type Err = ParseTargetError;
 
+    /// Parses `[http://]HOST:PORT`.
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let s = input.trim();
         let s = match s.split_once("://") {
@@ -360,6 +366,18 @@ impl std::str::FromStr for ProxySpec {
     }
 }
 
+/// Checks that `name` is a DNS host name, as needed for an SNI value, and
+/// returns it lowercased without a trailing dot.
+///
+/// # Errors
+///
+/// [`ParseTargetError`] when a label is empty, too long or holds anything
+/// but letters, digits, `-` and `_`.
+pub fn host_name(name: &str) -> Result<String, ParseTargetError> {
+    validate_name(name)
+}
+
+/// Lowercases `name` and checks its labels; see [`host_name`].
 fn validate_name(name: &str) -> Result<String, ParseTargetError> {
     let name = name.strip_suffix('.').unwrap_or(name).to_ascii_lowercase();
     let label_ok = |l: &str| {
@@ -378,12 +396,16 @@ fn validate_name(name: &str) -> Result<String, ParseTargetError> {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for target, range, override and proxy parsing.
+
     use super::*;
 
+    /// Parses `s` as a target.
     fn t(s: &str) -> Target {
         s.parse().unwrap()
     }
 
+    /// Host, port, URL and IP literal forms parse.
     #[test]
     fn forms() {
         assert_eq!(t("Example.COM").to_string(), "example.com:443");
@@ -515,12 +537,19 @@ mod tests {
         }
     }
 
+    /// Names default the SNI; IP literals send none. SNI values must be
+    /// host names.
     #[test]
     fn sni() {
         assert_eq!(t("example.com").default_sni(), Some("example.com"));
         assert_eq!(t("192.0.2.1").default_sni(), None);
+        assert_eq!(host_name("WWW.Example.com.").unwrap(), "www.example.com");
+        for bad in ["a\r\nX-Evil: 1", "a b", "", "a..b"] {
+            assert!(host_name(bad).is_err(), "{bad:?}");
+        }
     }
 
+    /// Malformed targets are rejected.
     #[test]
     fn rejects() {
         for bad in [

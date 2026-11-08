@@ -240,6 +240,11 @@ struct ServeArgs {
           value_parser = clap::value_parser!(u16).range(1..))]
     max_history: u16,
 
+    /// Most progress streams open at once.
+    #[arg(long, default_value_t = 64, value_name = "N",
+          value_parser = clap::value_parser!(u16).range(1..))]
+    max_streams: u16,
+
     /// Time limit for one scan, in seconds.
     #[arg(long, default_value_t = 300, value_name = "SECONDS",
           value_parser = clap::value_parser!(u64).range(1..))]
@@ -471,6 +476,7 @@ fn server_config(args: &ServeArgs) -> Result<testls_server::Config, String> {
     config.max_concurrent = args.max_concurrent.into();
     config.max_per_minute = args.max_per_minute.into();
     config.max_history = args.max_history.into();
+    config.max_streams = args.max_streams.into();
     config.scan_timeout = Duration::from_secs(args.scan_timeout);
     config.connect_timeout = Duration::from_secs(args.connect_timeout);
     config.read_timeout = Duration::from_secs(args.read_timeout);

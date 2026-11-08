@@ -5,7 +5,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::header::{
     AUTHORIZATION, CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, LOCATION,
     REFERRER_POLICY, WWW_AUTHENTICATE, X_CONTENT_TYPE_OPTIONS,
@@ -34,6 +34,9 @@ const API_POLICY: &str = "default-src 'none'; frame-ancestors 'none'";
 /// Policy for the HTML report, which carries its own inline styles.
 const HTML_POLICY: &str = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'";
 
+/// Largest request body accepted; a scan request needs a few hundred bytes.
+const MAX_BODY: usize = 16 * 1024;
+
 /// Builds the router over `shared`.
 pub(crate) fn routes(shared: Arc<Shared>) -> Router {
     Router::new()
@@ -41,6 +44,7 @@ pub(crate) fn routes(shared: Arc<Shared>) -> Router {
         .route("/scans/{id}", get(show))
         .route("/scans/{id}/events", get(events))
         .route("/scans/{id}/report", get(report))
+        .layer(DefaultBodyLimit::max(MAX_BODY))
         .layer(middleware::from_fn_with_state(Arc::clone(&shared), guard))
         .with_state(shared)
 }
@@ -192,17 +196,21 @@ impl ScanRequest {
         if let Some(profile) = self.profile.as_deref() {
             options.profile = profile.parse::<ScanProfile>().map_err(ApiError::bad)?;
         }
-        options.policies = self
-            .policies
-            .iter()
-            .map(|p| p.parse::<Policy>())
-            .collect::<Result<_, _>>()
-            .map_err(ApiError::bad)?;
+        for name in &self.policies {
+            let policy = name.parse::<Policy>().map_err(ApiError::bad)?;
+            if !options.policies.contains(&policy) {
+                options.policies.push(policy);
+            }
+        }
         options.revocation = self.revocation;
-        options.sni = self
-            .sni
-            .filter(|s| !s.is_empty())
-            .or_else(|| target.default_sni().map(str::to_owned));
+        options.sni = match self.sni.as_deref().filter(|s| !s.is_empty()) {
+            // Probes put the SNI into plaintext `Host` headers, so it must
+            // be a plain host name.
+            Some(sni) => {
+                Some(target::host_name(sni).map_err(|e| ApiError::bad(format!("sni: {e}")))?)
+            }
+            None => target.default_sni().map(str::to_owned),
+        };
         Ok(Parsed {
             target,
             starttls,
@@ -228,13 +236,8 @@ async fn start(
 ) -> Result<Response, ApiError> {
     let parsed = request.parse()?;
     let config = &shared.config;
-    let addr = resolve(&parsed.target, config).await?;
-    if !config.allow_private && !public_address(addr.ip()) {
-        return Err(ApiError(
-            StatusCode::FORBIDDEN,
-            format!("{} is not a public address", addr.ip()),
-        ));
-    }
+    // Limits come before the name lookup, so refused requests cost no DNS
+    // work and a lookup counts against both limits.
     let permit = Arc::clone(&shared.slots).try_acquire_owned().map_err(|_| {
         ApiError(
             StatusCode::TOO_MANY_REQUESTS,
@@ -245,6 +248,13 @@ async fn start(
         return Err(ApiError(
             StatusCode::TOO_MANY_REQUESTS,
             "too many scans started in the last minute".to_owned(),
+        ));
+    }
+    let addr = resolve(&parsed.target, config).await?;
+    if !config.allow_private && !public_address(addr.ip()) {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            format!("{} is not a public address", addr.ip()),
         ));
     }
     let name = parsed.target.to_string();
@@ -457,6 +467,8 @@ struct Progress {
     sent: usize,
     /// Whether the final event went out.
     done: bool,
+    /// Stream slot, freed when the response body is dropped.
+    _permit: OwnedSemaphorePermit,
 }
 
 /// What the stream sends next.
@@ -512,6 +524,8 @@ impl Progress {
 /// `GET /scans/{id}/events`: progress as server-sent events. A
 /// `section` event carries each finished section; a final `done` event
 /// carries the status. Reconnecting clients resume after `Last-Event-ID`.
+/// At most `max_streams` streams are open at once; each ends with its
+/// scan.
 async fn events(
     State(shared): State<Arc<Shared>>,
     Path(id): Path<u64>,
@@ -521,6 +535,14 @@ async fn events(
         .history
         .subscribe(id)
         .ok_or_else(ApiError::not_found)?;
+    let permit = Arc::clone(&shared.streams)
+        .try_acquire_owned()
+        .map_err(|_| {
+            ApiError(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many progress streams open".to_owned(),
+            )
+        })?;
     let sent = headers
         .get("last-event-id")
         .and_then(|v| v.to_str().ok())
@@ -532,6 +554,7 @@ async fn events(
         changed,
         sent,
         done: false,
+        _permit: permit,
     };
     let stream = futures_util::stream::unfold(progress, Progress::next);
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
@@ -740,6 +763,8 @@ mod tests {
             (r#"{"target":"localhost","profile":"deep"}"#, "deep"),
             (r#"{"target":"localhost","starttls":"gopher"}"#, "gopher"),
             (r#"{"target":"localhost","policies":["nope"]}"#, "nope"),
+            (r#"{"target":"localhost","sni":"a\r\nX-Evil: 1"}"#, "sni"),
+            (r#"{"target":"localhost","sni":"a b"}"#, "sni"),
         ] {
             let (status, _, reply) = send(&app, Method::POST, "/scans", &[], Some(body)).await;
             assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
@@ -752,6 +777,39 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
         let (status, _, _) = send(&app, Method::GET, "/scans/7/events", &[], None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+        let huge = format!(
+            r#"{{"target":"localhost","sni":"{}"}}"#,
+            "a".repeat(MAX_BODY)
+        );
+        let (status, _, _) = send(&app, Method::POST, "/scans", &[], Some(&huge)).await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    /// Repeated policies count once, and SNI values are normalised.
+    #[test]
+    fn request_values() {
+        let request: ScanRequest = serde_json::from_str(
+            r#"{"target":"example.com","sni":"WWW.Example.com.",
+                "policies":["pci-dss-4","pci-dss-4","cnsa-2.0","pci-dss-4"]}"#,
+        )
+        .unwrap();
+        let parsed = request.parse().unwrap();
+        assert_eq!(parsed.options.policies, [Policy::PciDss4, Policy::Cnsa2]);
+        assert_eq!(parsed.options.sni.as_deref(), Some("www.example.com"));
+    }
+
+    /// A listener on the loopback interface that accepts connections and
+    /// never answers, so scans against it stay running.
+    async fn stalled() -> SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                held.push(socket);
+            }
+        });
+        addr
     }
 
     /// Private targets are refused unless allowed.
@@ -807,21 +865,78 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
-    /// Scans beyond the concurrency limit are refused.
+    /// Scans beyond the concurrency limit are refused before the target
+    /// name is looked up, and progress streams beyond their limit too.
     #[tokio::test]
     async fn concurrency_limit() {
         let app = router(Config {
             max_concurrent: 1,
-            connect_timeout: Duration::from_secs(5),
+            max_streams: 1,
+            read_timeout: Duration::from_secs(30),
             ..private()
         });
-        // 192.0.2.0/24 is TEST-NET-1 (RFC 5737): connects there hang until
-        // the timeout, so the first scan is still running.
-        let body = r#"{"target":"192.0.2.1"}"#;
-        let (status, _, _) = send(&app, Method::POST, "/scans", &[], Some(body)).await;
+        let body = format!(r#"{{"target":"{}"}}"#, stalled().await);
+        let (status, _, _) = send(&app, Method::POST, "/scans", &[], Some(&body)).await;
         assert_eq!(status, StatusCode::ACCEPTED);
-        let (status, _, reply) = send(&app, Method::POST, "/scans", &[], Some(body)).await;
+        // A name that cannot resolve: a 429 rather than a 400 shows the
+        // limit is checked first.
+        let unresolvable = r#"{"target":"scan.invalid"}"#;
+        let (status, _, reply) = send(&app, Method::POST, "/scans", &[], Some(unresolvable)).await;
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
         assert!(reply.contains("too many scans running"), "{reply}");
+
+        let request = Request::builder()
+            .uri("/scans/1/events")
+            .header(HOST, "localhost")
+            .body(Body::empty())
+            .unwrap();
+        let open = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(open.status(), StatusCode::OK);
+        let (status, _, reply) = send(&app, Method::GET, "/scans/1/events", &[], None).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(reply.contains("too many progress streams"), "{reply}");
+        drop(open);
+        let request = Request::builder()
+            .uri("/scans/1/events")
+            .header(HOST, "localhost")
+            .body(Body::empty())
+            .unwrap();
+        let reopened = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(reopened.status(), StatusCode::OK);
+    }
+
+    /// Scans beyond the rate limit are refused before the target name is
+    /// looked up.
+    #[tokio::test]
+    async fn rate_limit_first() {
+        let app = router(Config {
+            max_per_minute: 1,
+            ..private()
+        });
+        let body = r#"{"target":"127.0.0.1:9","profile":"quick"}"#;
+        let (status, _, _) = send(&app, Method::POST, "/scans", &[], Some(body)).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let unresolvable = r#"{"target":"scan.invalid"}"#;
+        let (status, _, reply) = send(&app, Method::POST, "/scans", &[], Some(unresolvable)).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(reply.contains("last minute"), "{reply}");
+    }
+
+    /// A scan that outlives `scan_timeout` fails and frees its slot.
+    #[tokio::test]
+    async fn timeout_frees_slot() {
+        let app = router(Config {
+            max_concurrent: 1,
+            scan_timeout: Duration::from_millis(200),
+            read_timeout: Duration::from_secs(30),
+            ..private()
+        });
+        let body = format!(r#"{{"target":"{}"}}"#, stalled().await);
+        let (status, _, _) = send(&app, Method::POST, "/scans", &[], Some(&body)).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let (_, _, stream) = send(&app, Method::GET, "/scans/1/events", &[], None).await;
+        assert!(stream.contains("scan timed out"), "{stream}");
+        let (status, _, _) = send(&app, Method::POST, "/scans", &[], Some(&body)).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
     }
 }
