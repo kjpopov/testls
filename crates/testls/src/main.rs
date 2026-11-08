@@ -428,9 +428,13 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 
 /// Runs `testls serve` until interrupted; exit code 2 if it cannot start,
 /// 130 if a second interrupt cut the shutdown short.
+///
+/// Exits the process directly once serving ends: dropping the runtime would
+/// wait for blocking work such as a hung name lookup, defeating the grace
+/// period.
 async fn serve_command(args: &ServeArgs) -> ExitCode {
     match serve(args).await {
-        Ok(code) => code,
+        Ok(code) => std::process::exit(code),
         Err(e) => {
             eprintln!("error: {e}");
             ExitCode::from(2)
@@ -442,7 +446,7 @@ async fn serve_command(args: &ServeArgs) -> ExitCode {
 /// interrupted. The first interrupt starts a graceful shutdown that waits
 /// up to [`SHUTDOWN_GRACE`] for open connections; a second one stops at
 /// once.
-async fn serve(args: &ServeArgs) -> Result<ExitCode, String> {
+async fn serve(args: &ServeArgs) -> Result<i32, String> {
     let config = server_config(args)?;
     let listener = tokio::net::TcpListener::bind(args.listen)
         .await
@@ -460,7 +464,7 @@ async fn serve(args: &ServeArgs) -> Result<ExitCode, String> {
     let server = testls_server::serve(listener, config, shutdown);
     tokio::pin!(server);
     tokio::select! {
-        result = &mut server => return result.map(|()| ExitCode::SUCCESS).map_err(|e| e.to_string()),
+        result = &mut server => return result.map(|()| 0).map_err(|e| e.to_string()),
         () = interrupts.next() => {}
     }
     eprintln!(
@@ -469,17 +473,17 @@ async fn serve(args: &ServeArgs) -> Result<ExitCode, String> {
     );
     let _ = stop.send(());
     tokio::select! {
-        result = server => result.map(|()| ExitCode::SUCCESS).map_err(|e| e.to_string()),
-        () = interrupts.next() => Ok(ExitCode::from(130)),
+        result = server => result.map(|()| 0).map_err(|e| e.to_string()),
+        () = interrupts.next() => Ok(130),
         () = tokio::time::sleep(SHUTDOWN_GRACE) => {
             eprintln!("testls serve: connections still open, stopping anyway");
-            Ok(ExitCode::SUCCESS)
+            Ok(0)
         }
     }
 }
 
 /// Watches for the signals that stop `testls serve`: SIGINT and SIGTERM on
-/// Unix, Ctrl-C elsewhere. Created before the service announces itself,
+/// Unix, Ctrl-C on Windows. Created before the service announces itself,
 /// so an early signal is not lost to the default handler.
 #[derive(Debug)]
 struct Interrupts {
@@ -489,6 +493,9 @@ struct Interrupts {
     /// SIGTERM stream.
     #[cfg(unix)]
     term: tokio::signal::unix::Signal,
+    /// Ctrl-C stream.
+    #[cfg(windows)]
+    ctrl_c: tokio::signal::windows::CtrlC,
 }
 
 impl Interrupts {
@@ -502,8 +509,12 @@ impl Interrupts {
                 term: signal(SignalKind::terminate())?,
             })
         }
-        #[cfg(not(unix))]
-        Ok(Self {})
+        #[cfg(windows)]
+        {
+            Ok(Self {
+                ctrl_c: tokio::signal::windows::ctrl_c()?,
+            })
+        }
     }
 
     /// Completes on the next signal.
@@ -513,10 +524,8 @@ impl Interrupts {
             _ = self.int.recv() => {}
             _ = self.term.recv() => {}
         }
-        #[cfg(not(unix))]
-        if tokio::signal::ctrl_c().await.is_err() {
-            std::future::pending::<()>().await;
-        }
+        #[cfg(windows)]
+        self.ctrl_c.recv().await;
     }
 }
 

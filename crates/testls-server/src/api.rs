@@ -274,14 +274,11 @@ async fn start(
     transport.starttls = parsed.starttls;
     let mut options = parsed.options;
     options.revocation_allow_private = config.allow_private;
-    tokio::spawn(run(
-        Arc::clone(&shared),
+    let guard = Unfinished {
+        shared: Arc::clone(&shared),
         id,
-        name,
-        transport,
-        options,
-        permit,
-    ));
+    };
+    tokio::spawn(run(guard, name, transport, options, permit));
     let location = HeaderValue::from_str(&format!("/scans/{id}"))
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let status = Status::Running;
@@ -312,19 +309,17 @@ async fn resolve(target: &Target, config: &Config) -> Result<SocketAddr, ApiErro
 }
 
 /// Runs one scan, recording each section as it finishes and the report or
-/// error at the end. Holds `_permit` until done.
+/// error at the end. Holds `_permit` until done; `guard`, made before the
+/// task is spawned, fails the scan if the task is dropped early.
 async fn run(
-    shared: Arc<Shared>,
-    id: u64,
+    guard: Unfinished,
     target: String,
     transport: Transport,
     options: Options,
     _permit: OwnedSemaphorePermit,
 ) {
-    let _unfinished = Unfinished {
-        shared: Arc::clone(&shared),
-        id,
-    };
+    let shared = Arc::clone(&guard.shared);
+    let id = guard.id;
     let mut on_event = {
         let shared = Arc::clone(&shared);
         move |event: Event<'_>| shared.history.push(id, section(event))
@@ -1083,6 +1078,33 @@ mod tests {
         assert_eq!(status, Status::Failed);
         assert_eq!(error.as_deref(), Some("scan stopped unexpectedly"));
         assert!(format!("{shared:?}").contains("history"));
+    }
+
+    /// A scan task aborted before it first runs still fails its record.
+    #[tokio::test]
+    async fn aborted_scan_fails() {
+        let shared = Arc::new(Shared::new(private()));
+        let id = shared
+            .history
+            .insert("a:443".into(), String::new(), 0)
+            .unwrap();
+        let permit = Arc::clone(&shared.slots).try_acquire_owned().unwrap();
+        let guard = Unfinished {
+            shared: Arc::clone(&shared),
+            id,
+        };
+        let transport = Transport::new(stalled().await);
+        let task = tokio::spawn(run(
+            guard,
+            "a:443".into(),
+            transport,
+            Options::default(),
+            permit,
+        ));
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        let status = shared.history.with(id, |r| r.status).unwrap();
+        assert_eq!(status, Status::Failed);
     }
 
     /// A scan that outlives `scan_timeout` fails and frees its slot.
