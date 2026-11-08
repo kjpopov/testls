@@ -80,8 +80,8 @@
         <div class="main-top">
           <h2>Findings</h2>
           <div class="main-top-right">
-            <input id="search" type="search" class="search-box" placeholder="Filter findings" spellcheck="false">
-            <select id="sort" class="sort-select">
+            <input id="search" type="search" class="search-box" placeholder="Filter findings" aria-label="Filter findings" spellcheck="false">
+            <select id="sort" class="sort-select" aria-label="Sort findings by">
               <option value="severity">Severity</option>
               <option value="id">Id</option>
             </select>
@@ -125,19 +125,21 @@
   </main>
 </div>
 
-<div id="overlay" class="overlay" hidden></div>
-<div id="drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden>
-  <div class="drawer-head">
-    <h3 id="drawer-title"></h3>
-    <button id="drawer-close" type="button" class="ghost" aria-label="Close">×</button>
+<dialog id="drawer" class="drawer" aria-labelledby="drawer-title">
+  <div class="drawer-inner">
+    <div class="drawer-head">
+      <h3 id="drawer-title"></h3>
+      <button id="drawer-close" type="button" class="ghost" aria-label="Close">×</button>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
   </div>
-  <div id="drawer-body" class="drawer-body"></div>
-</div>
+</dialog>
 
-<dialog id="token-dialog">
+<dialog id="token-dialog" aria-labelledby="token-title">
   <form id="token-form" method="dialog">
-    <h3>Bearer token</h3>
+    <h3 id="token-title">Bearer token</h3>
     <p>This service needs the token printed by <code>testls serve</code>. It is kept in this tab only.</p>
+    <label for="token">Token</label>
     <input id="token" type="password" autocomplete="off" required>
     <div class="actions">
       <button type="submit">Save</button>

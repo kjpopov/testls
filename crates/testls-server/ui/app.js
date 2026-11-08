@@ -33,8 +33,10 @@ const state = {
   token: sessionStorage.getItem("testls-token"),
   current: null, // id of the scan on screen
   scan: null, // last GET /scans/{id} body
-  stream: null, // AbortController of the open progress stream
+  view: null, // AbortController of the scan view's requests and stream
   filter: null, // severity selected in the stats strip
+  explaining: null, // AbortController of the open explanation request
+  opener: null, // element that had focus before the drawer opened
 };
 
 // Creates an element with optional class and text.
@@ -189,11 +191,18 @@ function gradeClass(letter) {
   return "crit";
 }
 
-// Shows the scan named in the URL fragment.
+// Shows the scan named in the URL fragment. Each call starts a new view;
+// aborting the previous one cancels its requests and stream, so late
+// answers for an earlier scan never reach the page.
 async function route() {
   const id = Number(location.hash.slice(1));
-  if (state.stream) state.stream.abort();
-  state.stream = null;
+  if (state.view) state.view.abort();
+  const view = new AbortController();
+  state.view = view;
+  state.scan = null;
+  state.filter = null;
+  $("report").hidden = true;
+  $("grade").hidden = true;
   if (!Number.isInteger(id) || id <= 0) {
     state.current = null;
     $("scan").hidden = true;
@@ -202,61 +211,94 @@ async function route() {
     return;
   }
   state.current = id;
-  state.filter = null;
   $("welcome").hidden = true;
   $("scan").hidden = false;
+  fill($("scan-target"), `scan ${id}`);
+  fill($("scan-meta"));
+  $("scan-error").hidden = true;
   refreshHistory();
-  await loadScan(id);
+  await watch(id, view.signal);
 }
 
-// Loads one scan and follows its progress while it runs.
-async function loadScan(id) {
-  let scan;
-  try {
-    scan = await (await api(`/scans/${id}`)).json();
-  } catch (e) {
-    showScan({ id, target: `scan ${id}`, status: "failed", error: e.message, sections: [], header: "" });
-    return;
+// Waits `ms` milliseconds unless `signal` aborts first.
+function pause(ms, signal) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+}
+
+// Loads scan `id` and follows its progress until it ends or the view
+// changes. A dropped or refused stream is retried with growing delays.
+async function watch(id, signal) {
+  let delay = 1000;
+  while (!signal.aborted) {
+    let scan;
+    try {
+      scan = await (await api(`/scans/${id}`, { signal })).json();
+    } catch (e) {
+      if (signal.aborted) return;
+      showScan({ id, target: `scan ${id}`, status: "failed", error: e.message, sections: [], header: "" });
+      return;
+    }
+    if (signal.aborted) return;
+    showScan(scan);
+    if (scan.status !== "running") {
+      refreshHistory();
+      return;
+    }
+    const ended = await follow(scan, signal);
+    if (signal.aborted) return;
+    if (!ended) {
+      await pause(delay, signal);
+      delay = Math.min(delay * 2, 30000);
+    }
   }
-  if (state.current !== id) return;
-  showScan(scan);
-  if (scan.status === "running") follow(id, scan.sections.length);
 }
 
-// Follows the progress stream of a running scan. EventSource cannot send
-// the bearer token, so the stream is read through fetch.
-async function follow(id, seen) {
-  const controller = new AbortController();
-  state.stream = controller;
+// Reads the progress stream of a running scan into `scan`. EventSource
+// cannot send the bearer token, so the stream is read through fetch.
+// Returns true when the final event arrived, false when the stream failed
+// or ended early.
+async function follow(scan, signal) {
+  const seen = scan.sections.length;
   const headers = seen > 0 ? { "Last-Event-ID": String(seen - 1) } : {};
   try {
-    const response = await api(`/scans/${id}/events`, { headers, signal: controller.signal });
+    const response = await api(`/scans/${scan.id}/events`, { headers, signal });
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
     let buffer = "";
     for (;;) {
       const { value, done } = await reader.read();
-      if (done) break;
-      buffer += value.replace(/\r\n?/g, "\n");
+      if (done) return false;
+      buffer += value;
+      // Normalise line ends, keeping a trailing CR until the next chunk
+      // shows whether an LF follows.
+      const tail = buffer.endsWith("\r") ? "\r" : "";
+      buffer = buffer.slice(0, buffer.length - tail.length).replace(/\r\n?/g, "\n");
       let end;
       while ((end = buffer.indexOf("\n\n")) >= 0) {
         const block = buffer.slice(0, end);
         buffer = buffer.slice(end + 2);
-        if (onEvent(id, block)) {
-          controller.abort();
-          return;
+        if (signal.aborted) return true;
+        if (onEvent(scan, block)) {
+          reader.cancel().catch(() => {});
+          return true;
         }
       }
+      buffer += tail;
     }
   } catch (e) {
-    if (controller.signal.aborted) return;
-    $("status-line").textContent = `progress stream: ${e.message}`;
+    if (!signal.aborted) $("status-line").textContent = `progress stream: ${e.message}`;
+    return false;
   }
-  // The stream ended early; read the final state instead.
-  if (state.current === id && state.stream === controller) loadScan(id);
 }
 
-// Handles one server-sent event block. Returns true after the final event.
-function onEvent(id, block) {
+// Handles one server-sent event block for `scan`. Returns true after the
+// final event.
+function onEvent(scan, block) {
   let name = "message";
   const data = [];
   for (const line of block.split("\n")) {
@@ -267,18 +309,12 @@ function onEvent(id, block) {
     if (field === "event") name = value;
     else if (field === "data") data.push(value);
   }
-  if (state.current !== id || !state.scan) return true;
-  if (name === "section") {
-    state.scan.sections.push(JSON.parse(data.join("\n")));
-    showProgress(state.scan);
+  if (name === "section" && data.length) {
+    scan.sections.push(JSON.parse(data.join("\n")));
+    showProgress(scan);
     return false;
   }
-  if (name === "done") {
-    loadScan(id);
-    refreshHistory();
-    return true;
-  }
-  return false;
+  return name === "done";
 }
 
 // Renders a scan.
@@ -301,7 +337,7 @@ function showScan(scan) {
   const report = scan.report;
   $("report").hidden = !report;
   $("grade").hidden = !report;
-  if (report) showReport(report);
+  if (report) showReport(scan.id, report);
 }
 
 // Renders the section checklist, the progress bar and the text output.
@@ -330,8 +366,8 @@ function showProgress(scan) {
   $("text").textContent = text.join("\n");
 }
 
-// Renders a finished report.
-function showReport(report) {
+// Renders the finished report of scan `id`.
+function showReport(id, report) {
   const grade = $("grade");
   grade.className = `grade ${gradeClass(report.grade.letter)}`;
   grade.textContent = report.grade.letter;
@@ -349,7 +385,7 @@ function showReport(report) {
   fill(reasons);
   for (const reason of report.grade.reasons) reasons.append(el("li", null, reason));
   if (!report.grade.reasons.length) reasons.append(el("li", "dim", "Nothing holds the grade back."));
-  showExport();
+  showExport(id);
 }
 
 // Renders the severity counts; a click filters the findings table.
@@ -510,22 +546,21 @@ function showVulnerabilities(vulns) {
   box.append(table);
 }
 
-// Renders the export buttons.
-function showExport() {
+// Renders the export buttons for scan `id`.
+function showExport(id) {
   const box = $("export");
   fill(box);
   for (const format of FORMATS) {
     const button = el("button", "ghost", format);
     button.type = "button";
-    button.addEventListener("click", () => download(format));
+    button.addEventListener("click", () => download(id, format));
     box.append(button);
   }
 }
 
-// Downloads the report in `format`. Fetched rather than linked so the
-// token can be sent.
-async function download(format) {
-  const id = state.current;
+// Downloads the report of scan `id` in `format`. Fetched rather than
+// linked so the token can be sent.
+async function download(id, format) {
   try {
     const blob = await (await api(`/scans/${id}/report?format=${format}`)).blob();
     const url = URL.createObjectURL(blob);
@@ -541,42 +576,32 @@ async function download(format) {
   }
 }
 
-// Opens the drawer with the explanation of a finding.
+// Opens the drawer with the explanation of a finding. A newer request
+// cancels an older one, so only the shown finding's text arrives.
 async function explain(finding) {
+  if (state.explaining) state.explaining.abort();
+  const request = new AbortController();
+  state.explaining = request;
   $("drawer-title").textContent = finding.id;
   const body = $("drawer-body");
-  fill(body, pill(`sev-${finding.severity}`, finding.severity), el("p", null, finding.message), el("div", "spinner"));
-  openDrawer();
+  const head = () => [pill(`sev-${finding.severity}`, finding.severity), el("p", null, finding.message)];
+  fill(body, ...head(), el("div", "spinner"));
+  const drawer = $("drawer");
+  if (!drawer.open) drawer.showModal();
   try {
-    const e = await (await api(`/explanations/${encodeURIComponent(finding.id)}`)).json();
-    fill(body,
-      pill(`sev-${finding.severity}`, finding.severity),
-      el("p", null, finding.message),
-      el("h4", null, e.title),
-      el("p", null, e.rationale),
-      grid([["Reference", e.reference]]));
+    const path = `/explanations/${encodeURIComponent(finding.id)}`;
+    const e = await (await api(path, { signal: request.signal })).json();
+    if (request.signal.aborted) return;
+    fill(body, ...head(), el("h4", null, e.title), el("p", null, e.rationale), grid([["Reference", e.reference]]));
   } catch (err) {
-    body.lastChild.replaceWith(el("p", "dim", err.message));
+    if (!request.signal.aborted) fill(body, ...head(), el("p", "dim", err.message));
   }
 }
 
-// Shows the drawer.
-function openDrawer() {
-  $("overlay").hidden = false;
-  $("drawer").hidden = false;
-  requestAnimationFrame(() => {
-    $("overlay").classList.add("open");
-    $("drawer").classList.add("open");
-  });
-  $("drawer-close").focus();
-}
-
-// Hides the drawer.
+// Closes the drawer; the browser returns focus to the finding row.
 function closeDrawer() {
-  $("overlay").classList.remove("open");
-  $("drawer").classList.remove("open");
-  $("overlay").hidden = true;
-  $("drawer").hidden = true;
+  if (state.explaining) state.explaining.abort();
+  $("drawer").close();
 }
 
 // Wires up the page.
@@ -584,10 +609,14 @@ function init() {
   setupForm();
   $("search").addEventListener("input", showFindings);
   $("sort").addEventListener("change", showFindings);
-  $("overlay").addEventListener("click", closeDrawer);
+  const drawer = $("drawer");
   $("drawer-close").addEventListener("click", closeDrawer);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeDrawer();
+  // A click on the backdrop lands on the dialog element itself.
+  drawer.addEventListener("click", (e) => {
+    if (e.target === drawer) closeDrawer();
+  });
+  drawer.addEventListener("cancel", () => {
+    if (state.explaining) state.explaining.abort();
   });
   $("token-button").addEventListener("click", askToken);
   if (state.token) $("token-button").hidden = false;
