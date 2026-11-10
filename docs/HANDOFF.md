@@ -106,22 +106,35 @@ if `gh` is allowed); update it when a session ends.
   `testls-probe/src/ccs.rs`. A fatal `bad_record_mac` following the probe
   indicates early cipher activation; other replies remain not tested. The
   OpenSSL 1.0.1g and 1.0.1h fixtures exercise affected and patched versions.
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:c6b2a12dca3fb8e83cd03fef40e1c6063cd2d43cb80f1b49d3926c97e57d7c9b -->
-
 - Ticketbleed merged in PR #158. ROBOT is implemented on the current branch
   in `testls-probe/src/robot.rs` and `testls-scan/src/sections.rs` (decision
   #101); it is opt-in and reports only reproducible alert differences. Equal
   alerts, failed comparisons and timing oracles remain untested. It uses
   `num-bigint`, already present transitively in the lockfile.
 - v0.6.1 remains open until ROBOT is merged.
-
-<!-- /coderabbit-ai-generated:v1 -->
+- PR #159 review fixes (2026-11-10): the missing-separator vector now
+  excludes zero bytes from the premaster tail; the regression failed before
+  the fix. Added malformed-flight, noncomparable-alert, invalid-key/input
+  tests and a scripted positive scan-to-High-finding test. Strengthened the
+  Heartbleed fixture's ROBOT assertion to require an inconclusive verdict
+  and no ROBOT finding when all RSA vectors receive the same alert. Removed
+  generated Markdown markers, restored list order, moved #101 into the
+  decision table and documented `num-bigint` plus CERT/CC 7.5 vs NIST 5.9
+  severity scores.
+  Targeted LLVM coverage: `robot.rs` 428/429 lines (99.77%; only the defensive
+  modulus guard is uncovered), `robot_section` 28/28 (100%). OCSP fixtures,
+  fmt, Clippy (`-D warnings`), workspace tests with LLVM coverage, cargo-deny
+  and MSRV (`rustup run 1.97 cargo check --workspace --locked`) pass.
+  The strengthened Heartbleed integration and isolated patched-Heartbleed
+  test pass. Initial parallel CCS tests hit a blocked shared fixture;
+  maintainer authorized restarting only `servers-heartbleed-patched-1`.
+  Sequential CCS retries and the original SMTP test remain pending.
+  Human security review remains required; no merge authorized. Existing
+  `handoff-local` stash is untouched.
 
 ## Next work
 
-Next free decision: #101 (#99 CCS, #100 Ticketbleed in PR #158). Recheck
+Next free decision: #102 (#99 CCS, #100 Ticketbleed in PR #158, #101 ROBOT). Recheck
 fresh `main` before assigning a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
@@ -133,15 +146,9 @@ fresh `main` before assigning a number.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:3112ecc5f73696db9f02d6e597a8842af342159469268e9093b9fc649dd4bf0f -->
-
 3. v0.6.1: Heartbleed, CCS injection and Ticketbleed are merged; ROBOT is
    implemented on this branch and awaits review and merge. Later backlog:
    `--delay`, `--parallel`.
-
-<!-- /coderabbit-ai-generated:v1 -->
 
 ## Habits that worked
 

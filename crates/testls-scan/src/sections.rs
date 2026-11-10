@@ -647,11 +647,82 @@ async fn ccs_section(
 
 #[cfg(test)]
 mod tests {
-    //! Unit tests for section results when probes fail.
+    //! Unit tests for section results and scripted vulnerability evidence.
 
     use std::net::SocketAddr;
 
     use super::*;
+
+    /// Reads one complete record from the scripted ROBOT client.
+    async fn robot_record(stream: &mut tokio::net::TcpStream, minor: u8) -> Vec<u8> {
+        use tokio::io::AsyncReadExt;
+        let mut header = [0; 5];
+        stream.read_exact(&mut header).await.unwrap();
+        assert_eq!(&header[1..3], &[3, minor]);
+        let mut body = vec![0; usize::from(u16::from_be_bytes([header[3], header[4]]))];
+        stream.read_exact(&mut body).await.unwrap();
+        body
+    }
+
+    /// Repeated alert evidence becomes a vulnerable item and a High finding.
+    #[tokio::test]
+    async fn robot_evidence_maps_to_finding() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let transport = Transport::new(listener.local_addr().unwrap());
+        let peer = tokio::spawn(async move {
+            let cert = include_bytes!("../../testls-probe/src/testdata/rsa1024.cert.der");
+            // RFC 5246 §7.4: ServerHello, Certificate and ServerHelloDone.
+            let mut flight = vec![2, 0, 0, 38, 3, 3];
+            flight.extend_from_slice(&[1; 32]);
+            flight.extend_from_slice(&[0, 0, 0x2f, 0]);
+            flight.push(11);
+            for len in [cert.len() + 6, cert.len() + 3, cert.len()] {
+                flight.extend_from_slice(&u32::try_from(len).unwrap().to_be_bytes()[1..]);
+            }
+            flight.extend_from_slice(cert);
+            flight.extend_from_slice(&[14, 0, 0, 0]);
+            let mut record = vec![22, 3, 3];
+            record.extend_from_slice(&u16::try_from(flight.len()).unwrap().to_be_bytes());
+            record.extend_from_slice(&flight);
+            for alert in [20, 40, 20, 20, 20, 40, 20, 20] {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                robot_record(&mut stream, 1).await;
+                stream.write_all(&record).await.unwrap();
+                assert_eq!(
+                    &robot_record(&mut stream, 3).await[..6],
+                    &[16, 0, 0, 130, 0, 128]
+                );
+                assert_eq!(robot_record(&mut stream, 3).await, [1]);
+                assert_eq!(robot_record(&mut stream, 3).await, [0; 64]);
+                stream.write_all(&[21, 3, 3, 0, 2, 2, alert]).await.unwrap();
+            }
+        });
+        let ciphers = [CipherSection {
+            version: ProtocolVersion::TLS12,
+            outcome: Ok(CipherResult {
+                version: ProtocolVersion::TLS12,
+                // Skip ECDHE and stop at the first static RSA suite.
+                suites: vec![0xc02f, 0x2f, 0x35],
+                order: testls_probe::CipherOrder::Server,
+            }),
+        }];
+        let item = robot_section(&transport, &ciphers, Some("localhost")).await;
+        tokio::time::timeout(std::time::Duration::from_secs(2), peer)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(item.id, "robot");
+        assert_eq!(item.name, "ROBOT");
+        assert_eq!(item.status, testls_checks::VulnStatus::Vulnerable);
+        assert_eq!(item.finding, Some("vuln.robot"));
+        assert!(item.detail.contains("TLSv1.2"));
+        assert!(item.detail.contains("0x002f"));
+        let findings = vulnerability_findings(&[item]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id, "vuln.robot");
+        assert_eq!(findings[0].severity, Severity::High);
+    }
 
     /// Missing RSA suites and refused connections are inconclusive.
     #[tokio::test]

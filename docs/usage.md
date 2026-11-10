@@ -115,10 +115,6 @@ testls' own model, not SSL Labs', and does not affect the exit status. See
 
 ## Intrusive probes
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:5699c71840af2def7007a5fefcbbb3fbde195cd81298aa059402605e460d7aa3 -->
-
 `testls --intrusive example.com` enables Heartbleed, CCS injection,
 Ticketbleed and ROBOT probes, including with the `quick` profile. No profile
 enables them automatically; the server API does not expose them.
@@ -129,8 +125,6 @@ difference against a `bad_record_mac` control produces a high `vuln.robot`
 finding. Equal alerts, other responses, and unsupported suites are **not
 tested**; they do not establish that the server is safe. Only these padding
 variants and the selected suites are covered; timing oracles are not tested.
-
-<!-- /coderabbit-ai-generated:v1 -->
 
 A correlated heartbeat response with an extra payload byte confirms
 `vuln.heartbleed` (critical). Disclosure is limited to one byte beyond the

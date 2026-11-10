@@ -218,7 +218,15 @@ fn padding_block(len: usize, version: ProtocolVersion, kind: usize) -> Result<Ve
         0 => {}
         1 => block[1] = 1,
         2 => block[2] = 0,
-        3 => block[len - 49] = 1,
+        3 => {
+            block[len - 49] = 1;
+            // No later zero may act as a replacement PKCS#1 separator.
+            for byte in &mut block[len - 46..] {
+                if *byte == 0 {
+                    *byte = 1;
+                }
+            }
+        }
         _ => return Err(ProbeError::Unexpected("invalid RSA probe vector")),
     }
     Ok(block)
@@ -239,8 +247,8 @@ mod tests {
         r
     }
 
-    /// Builds a full static RSA server flight with a known certificate.
-    fn server_flight(cert: &[u8]) -> Vec<u8> {
+    /// Builds static RSA handshake messages with a known certificate.
+    fn server_handshakes(cert: &[u8]) -> Vec<u8> {
         let mut h = vec![2, 0, 0, 38, 3, 3];
         h.extend_from_slice(&[1; 32]);
         h.extend_from_slice(&[0, 0, 0x2f, 0]);
@@ -261,9 +269,107 @@ mod tests {
         ]);
         h.extend_from_slice(cert);
         h.extend_from_slice(&[14, 0, 0, 0]);
+        h
+    }
+
+    /// Fragments a full static RSA server flight across two records.
+    fn server_flight(cert: &[u8]) -> Vec<u8> {
+        let h = server_handshakes(cert);
         let mut result = record(22, &h[..19]);
         result.extend(record(22, &h[19..]));
         result
+    }
+
+    /// Reads one scripted server flight without sending attack traffic.
+    async fn scripted_flight(bytes: Vec<u8>) -> Result<Vec<u8>, ProbeError> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let peer = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            stream.write_all(&bytes).await.unwrap();
+        });
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let result = flight(&mut stream, ProtocolVersion::TLS12, 0x2f).await;
+        peer.await.unwrap();
+        result
+    }
+
+    /// Rejects non-handshake records, oversized flights and unexpected messages.
+    #[tokio::test]
+    async fn invalid_server_flights() {
+        let cert = include_bytes!("testdata/rsa1024.cert.der");
+        let valid = server_handshakes(cert);
+        let mut cases = vec![
+            (
+                record(21, &[2, 40]),
+                "invalid or oversized RSA server flight",
+            ),
+            (
+                record(22, &[11, 0, 0, 3, 0, 0, 0]),
+                "unexpected RSA server flight",
+            ),
+            (record(22, &[14, 0, 0, 0]), "unexpected RSA server flight"),
+        ];
+        for (offset, value) in [(5, 2), (40, 0x35), (41, 1)] {
+            let mut h = valid.clone();
+            h[offset] = value;
+            cases.push((record(22, &h), "unexpected RSA server hello"));
+        }
+        let mut empty = valid[..42].to_vec();
+        empty.extend_from_slice(&[11, 0, 0, 3, 0, 0, 0]);
+        cases.push((record(22, &empty), "empty certificate chain"));
+        let mut duplicate = valid[..42].to_vec();
+        duplicate.extend_from_slice(&valid);
+        cases.push((record(22, &duplicate), "unexpected RSA server flight"));
+        let mut trailing = valid;
+        trailing.extend_from_slice(&[14, 0, 0, 0]);
+        cases.push((record(22, &trailing), "unexpected RSA server flight"));
+        // An incomplete large handshake stays buffered until the flight cap.
+        let mut oversized = record(22, &[11, 0xff, 0xff, 0xff]);
+        for _ in 0..16 {
+            oversized.extend(record(22, &[0xff; 16 * 1024]));
+        }
+        cases.push((oversized, "invalid or oversized RSA server flight"));
+        for (bytes, expected) in cases {
+            assert!(matches!(
+                scripted_flight(bytes).await,
+                Err(ProbeError::Unexpected(message)) if message == expected
+            ));
+        }
+    }
+
+    /// Only a fatal two-byte alert at the measured version is comparable.
+    #[tokio::test]
+    async fn noncomparable_responses() {
+        let mut wrong_version = record(21, &[2, 20]);
+        wrong_version[2] = 2;
+        for response in [
+            record(22, &[2, 20]),
+            wrong_version,
+            record(21, &[2]),
+            record(21, &[1, 20]),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let transport = Transport::new(listener.local_addr().unwrap());
+            let peer = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                read_record(&mut stream).await.unwrap();
+                stream
+                    .write_all(&server_flight(include_bytes!("testdata/rsa1024.cert.der")))
+                    .await
+                    .unwrap();
+                for _ in 0..3 {
+                    read_record(&mut stream).await.unwrap();
+                }
+                stream.write_all(&response).await.unwrap();
+            });
+            let result = probe_robot(&transport, ProtocolVersion::TLS12, 0x2f, None).await;
+            peer.await.unwrap();
+            assert!(matches!(
+                result,
+                Err(ProbeError::Unexpected("no comparable fatal alert"))
+            ));
+        }
     }
 
     /// Exercises all eight exchanges with a controllable sequence of alerts.
@@ -337,14 +443,19 @@ mod tests {
     /// Each test vector changes only its intended PKCS#1 padding condition.
     #[test]
     fn encoded_blocks() {
-        for kind in 0..4 {
-            let block = padding_block(128, ProtocolVersion::TLS12, kind).unwrap();
-            assert_eq!(block[0], 0);
-            assert_eq!(block[1], if kind == 1 { 1 } else { 2 });
-            assert_eq!(block[2] == 0, kind == 2);
-            assert!(block[3..79].iter().all(|b| *b != 0));
-            assert_eq!(block[79] == 0, kind != 3);
-            assert_eq!(&block[80..82], &[3, 3]);
+        for _ in 0..64 {
+            for kind in 0..4 {
+                let block = padding_block(128, ProtocolVersion::TLS12, kind).unwrap();
+                assert_eq!(block[0], 0);
+                assert_eq!(block[1], if kind == 1 { 1 } else { 2 });
+                assert_eq!(block[2] == 0, kind == 2);
+                assert!(block[3..79].iter().all(|b| *b != 0));
+                assert_eq!(block[79] == 0, kind != 3);
+                assert_eq!(&block[80..82], &[3, 3]);
+                if kind == 3 {
+                    assert!(block[82..].iter().all(|b| *b != 0));
+                }
+            }
         }
     }
 
@@ -375,10 +486,13 @@ mod tests {
             assert!(block[3..block.len() - 49].iter().all(|b| *b != 0));
             assert_eq!(block[block.len() - 49] == 0, kind != 3);
             assert_eq!(&block[block.len() - 48..block.len() - 46], &[3, 3]);
+            if kind == 3 {
+                assert!(block[block.len() - 46..].iter().all(|b| *b != 0));
+            }
         }
     }
 
-    /// Unsupported suites and non-RSA certificates cannot produce a verdict.
+    /// Invalid versions, suites, certificates and padding parameters are rejected.
     #[tokio::test]
     async fn invalid_inputs() {
         let t = Transport::new("127.0.0.1:1".parse().unwrap());
@@ -387,6 +501,20 @@ mod tests {
                 .await
                 .is_err()
         );
+        for version in [ProtocolVersion::SSL3, ProtocolVersion::TLS13] {
+            assert!(probe_robot(&t, version, 0x2f, None).await.is_err());
+        }
+        assert!(ciphertext(&[], ProtocolVersion::TLS12, 0).is_err());
+        let mut trailing = include_bytes!("testdata/rsa1024.cert.der").to_vec();
+        trailing.push(0);
+        assert!(matches!(
+            ciphertext(&trailing, ProtocolVersion::TLS12, 0),
+            Err(ProbeError::Unexpected("invalid RSA certificate"))
+        ));
+        for len in [0, 63, 1025] {
+            assert!(padding_block(len, ProtocolVersion::TLS12, 0).is_err());
+        }
+        assert!(padding_block(128, ProtocolVersion::TLS12, 4).is_err());
         assert!(
             ciphertext(
                 include_bytes!("testdata/localhost.cert.der"),
@@ -395,5 +523,32 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// Malformed or unsupported RSA public keys cannot produce ciphertext.
+    #[test]
+    fn invalid_public_keys() {
+        let fixture = include_bytes!("testdata/rsa1024.cert.der");
+        let (_, cert) = x509_parser::parse_x509_certificate(fixture).unwrap();
+        let raw = cert.public_key().subject_public_key.data.as_ref();
+        let offset = fixture.windows(raw.len()).position(|w| w == raw).unwrap();
+        let mut malformed = fixture.to_vec();
+        malformed[offset] = 0x31;
+        assert!(matches!(
+            ciphertext(&malformed, ProtocolVersion::TLS12, 0),
+            Err(ProbeError::Unexpected("invalid RSA public key"))
+        ));
+        // Keep the DER and certificate lengths unchanged while moving bytes
+        // from the modulus to an exponent wider than the supported 32 bits.
+        let mut public_key = vec![0x30, 0x81, 137, 0x02, 127];
+        public_key.extend_from_slice(&[0x7f; 127]);
+        public_key.extend_from_slice(&[0x02, 6, 1, 0, 0, 0, 0, 1]);
+        assert_eq!(public_key.len(), raw.len());
+        let mut large_exponent = fixture.to_vec();
+        large_exponent[offset..offset + raw.len()].copy_from_slice(&public_key);
+        assert!(matches!(
+            ciphertext(&large_exponent, ProtocolVersion::TLS12, 0),
+            Err(ProbeError::Unexpected("unsupported RSA key"))
+        ));
     }
 }
