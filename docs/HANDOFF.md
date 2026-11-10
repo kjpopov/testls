@@ -17,13 +17,15 @@ if `gh` is allowed); update it when a session ends.
   and the six stale remote branches (`feat/cidr-targets`,
   `feat/report-http-headers`, `feat/intrusive-checks`, `feat/web-ui`,
   `fix/server-review`, CodeRabbit's `review-latest-pull-request`
-  by-product of closed PR #153); only `origin/main` remains.
+  by-product of closed PR #153); only `origin/main` remained immediately
+  after cleanup. PR #156 was subsequently merged by the maintainer;
+  PR #157's CodeRabbit branch is now active.
 - v0.5.0 contains `--starttls smtp|imap|pop3|ftp|xmpp|ldap|postgres|mysql`
   (decisions #68–#75), `--mx` (#76–#77, `testls-probe/src/mx.rs`,
   `mail_hosts` in `main.rs`), PR #117 security hardening (#78–#81),
   Codecov upload and Test Analytics (#82, #86), BREACH/ALPACA/Opossum
   (#83–#85) and grading (#87–#89). Intrusive checks moved to the backlog
-  (decision #90). Next decision log number: **#91**.
+  (decision #90), later scheduled for v0.6.1 (#98).
 - Grading code map: `testls-checks/src/grade.rs` (`grade()`, `Grade`,
   `Letter`), rendered by `text::grade` / `grade_label` and every summary
   format via `sarif::Scan::grade`; `main.rs` grades before `triage`.
@@ -93,7 +95,7 @@ if `gh` is allowed); update it when a session ends.
 
 <!-- coderabbit-ai-generated-section:v1:a0b844454e47f510e088fb0b44cb8a5db413a906ce0cb202f31dc26e7aaeef1e -->
 
-- CCS injection is implemented as an opt-in early CCS probe in
+- PR #157 (open; initial review target `065d761`) implements an opt-in early CCS probe in
   `testls-probe/src/ccs.rs`. A fatal `bad_record_mac` following the probe
   indicates early cipher activation; other replies remain not tested. The
   OpenSSL 1.0.1g and 1.0.1h fixtures exercise affected and patched versions.
@@ -132,10 +134,12 @@ if `gh` is allowed); update it when a session ends.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-   Next decision number: **#100**.
+   Next decision number: **#100 after #157 merges** (#99 on main).
 3. v0.6.1 (PLAN decision #98): intrusive checks, one PR each behind
-   `--intrusive` — Heartbleed done in #154; CCS injection implemented;
-   next Ticketbleed and ROBOT. Then backlog: `--delay`, `--parallel`.
+   `--intrusive` — Heartbleed done in #154; CCS injection pending review
+   and merge in #157; next Ticketbleed and ROBOT. Then backlog: `--delay`,
+   `--parallel`. Main's next decision is #99; #157 proposes #99, so #100
+   applies only after it merges.
 
 <!-- /coderabbit-ai-generated:v1 -->
 
@@ -145,11 +149,42 @@ if `gh` is allowed); update it when a session ends.
 
 ## Habits that worked
 
+- Current review (2026-11-10): maintainer requested `lan/coder`
+  (Qwen3.8 27B) for code reviews. LAN review of #157 completed; parent
+  verified two low-priority follow-ups: TLS 1.0/1.1 evidence/framing tests
+  and duplicate-ServerHello rejection. No blocker found. Speculative
+  interoperability and wording-only suggestions were not forwarded.
+  Posted COMMENT review on #157: `pullrequestreview-5840532885` at
+  `065d761`. Maintainer requested fixes, commit/push and merge. Both
+  findings addressed: versioned peer tests assert CCS/handshake framing
+  and reject mismatched alert versions; duplicate hellos (identical or
+  changed version/suite) are rejected before CCS. Regression reproduced
+  the old behavior before the fix; all six CCS unit tests now pass.
+  Initial-head CI is green, including all 16 container integration tests.
+  Initial-head local workspace tests, fmt, Clippy and `cargo deny check` pass (deny
+  emits existing dependency warnings). Local MSRV check unavailable:
+  `rustup` is not installed. Local affected-server CCS integration passed
+  on retry (177 s); patched-server CCS integration also passed (97 s).
+  Only `ccs-patched` was started this session and stopped after tests;
+  pre-existing Heartbleed containers were left running.
+  Fix-round local workspace tests, fmt, Clippy (`-D warnings`), cargo-deny
+  and both CCS integration tests pass (177 s total). LAN rereview and
+  new-head CI pending; fix round to be committed/pushed together.
+  No approval or merge performed; human security review still required.
+  Reviewer shell denials diagnosed: global `agents/review.md` allows only
+  `git diff/log/show/status/blame` prefixes; `git -C`, `head`/`tail` pipes,
+  `ls`, `cat` and `echo` are denied. At the maintainer's request, permanently
+  added permission-aware instructions to `~/.config/opencode/agents/review.md`:
+  simple Git commands with `workdir`, dedicated read/glob/grep tools, no
+  repeated denied operations; parent handles tests and GitHub operations.
+  Permissions and default model unchanged; LAN reviewer was also steered.
+
 - CodeRabbit no longer auto-reviews (repo under 10 stars; trigger with
-  `@coderabbitai review`) and is slow. Maintainer prefers a local review
-  by a `review` subagent with a GPT model (used `litellm/gpt-6.1-sol#high`);
-  when the maintainer allows `gh` for the session, tell it to read the PR
-  with the `gh` CLI (not webfetch) and post its findings as a PR review;
+  `@coderabbitai review`) and is slow. Previously used a local review
+  by a `review` subagent with a GPT model (`litellm/gpt-6.1-sol#high`);
+  the latest maintainer request selects the LAN model above instead.
+  When the maintainer allows `gh` for the session, the parent reads the PR
+  with the `gh` CLI (not webfetch) and posts validated reviewer findings;
   fix them, then merge when CI is green.
 
 - One topic per PR, all review fixes in one commit per round, reply to each

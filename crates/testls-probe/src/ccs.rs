@@ -79,7 +79,7 @@ async fn read_record(stream: &mut TcpStream) -> Result<(u8, ProtocolVersion, Vec
     ))
 }
 
-/// Requires a complete server flight with the requested version and suite.
+/// Requires a complete server flight with exactly one hello at the measured version/suite.
 async fn flight(
     stream: &mut TcpStream,
     version: ProtocolVersion,
@@ -101,6 +101,9 @@ async fn flight(
         {
             offset += used;
             match message.typ {
+                handshake_type::SERVER_HELLO if got_hello => {
+                    return Err(ProbeError::Unexpected("duplicate ServerHello"));
+                }
                 handshake_type::SERVER_HELLO if !got_hello => {
                     let hello = ServerHello::parse(message.body).map_err(ProbeError::Decode)?;
                     if hello.negotiated_version().map_err(ProbeError::Decode)? != version
@@ -133,50 +136,95 @@ mod tests {
     use std::time::Duration;
     use tokio::net::TcpListener;
 
-    /// Frames a TLS record for the scripted peer.
-    fn record(typ: u8, body: &[u8]) -> Vec<u8> {
-        let mut out = vec![typ, 3, 3];
+    /// Frames a TLS record at the scripted peer's protocol version.
+    fn record(typ: u8, version: ProtocolVersion, body: &[u8]) -> Vec<u8> {
+        let [major, minor] = version.0.to_be_bytes();
+        let mut out = vec![typ, major, minor];
         out.extend_from_slice(&u16::try_from(body.len()).unwrap().to_be_bytes());
         out.extend_from_slice(body);
         out
     }
 
-    /// Checks that only a complete flight followed by the specific alert succeeds.
+    /// Encodes a scripted `ServerHello` with explicit negotiation parameters.
+    fn server_hello(version: ProtocolVersion, suite: u16, compression: u8) -> Vec<u8> {
+        let mut hello = vec![2, 0, 0, 38];
+        hello.extend_from_slice(&version.0.to_be_bytes());
+        hello.extend_from_slice(&[1; 32]);
+        hello.push(0);
+        hello.extend_from_slice(&suite.to_be_bytes());
+        hello.push(compression);
+        hello
+    }
+
+    /// Checks outgoing probe framing after a fragmented flight and returns the verdict.
+    async fn scripted_evidence(
+        version: ProtocolVersion,
+        alert_version: ProtocolVersion,
+        response: &[u8],
+    ) -> Result<(), ProbeError> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut transport = Transport::new(listener.local_addr().unwrap());
+        transport.read_timeout = Duration::from_secs(2);
+        let response = response.to_vec();
+        let peer = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            read_record(&mut stream).await.unwrap();
+            let mut hello = server_hello(version, 0x2f, 0);
+            hello.extend_from_slice(&[14, 0, 0, 0]);
+            // Split the handshake across records and the records across writes.
+            let mut flight = record(22, version, &hello[..19]);
+            flight.extend_from_slice(&record(22, version, &hello[19..]));
+            for chunk in flight.chunks(3) {
+                stream.write_all(chunk).await.unwrap();
+            }
+            assert_eq!(
+                read_record(&mut stream).await.unwrap(),
+                (20, version, vec![1])
+            );
+            assert_eq!(
+                read_record(&mut stream).await.unwrap(),
+                (22, version, vec![0; 64])
+            );
+            stream
+                .write_all(&record(21, alert_version, &response))
+                .await
+                .unwrap();
+        });
+        let result = probe_ccs(&transport, version, &[0x2f], None).await;
+        peer.await.unwrap();
+        result
+    }
+
+    /// Only the fatal alert at the measured TLS 1.0–1.2 version succeeds.
     #[tokio::test]
     async fn peers() {
-        for (response, success) in [
-            (&[2, 20][..], true),
-            (&[2, 10][..], false),
-            (&[1, 20][..], false),
+        for version in [
+            ProtocolVersion::TLS10,
+            ProtocolVersion::TLS11,
+            ProtocolVersion::TLS12,
         ] {
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let mut transport = Transport::new(listener.local_addr().unwrap());
-            transport.read_timeout = Duration::from_secs(2);
-            let response = response.to_vec();
-            let peer = tokio::spawn(async move {
-                let (mut stream, _) = listener.accept().await.unwrap();
-                read_record(&mut stream).await.unwrap();
-                let mut hello = vec![2, 0, 0, 38, 3, 3];
-                hello.extend_from_slice(&[1; 32]);
-                hello.extend_from_slice(&[0, 0, 0x2f, 0]);
-                hello.extend_from_slice(&[14, 0, 0, 0]);
-                // Split the handshake across records and the records across writes.
-                let mut flight = record(22, &hello[..19]);
-                flight.extend_from_slice(&record(22, &hello[19..]));
-                for chunk in flight.chunks(3) {
-                    stream.write_all(chunk).await.unwrap();
-                }
-                assert_eq!(read_record(&mut stream).await.unwrap().2, [1]);
-                assert_eq!(read_record(&mut stream).await.unwrap().2, [0; 64]);
-                stream.write_all(&record(21, &response)).await.unwrap();
-            });
-            assert_eq!(
-                probe_ccs(&transport, ProtocolVersion::TLS12, &[0x2f], None)
-                    .await
-                    .is_ok(),
-                success
-            );
-            peer.await.unwrap();
+            for (response, success) in [
+                (&[2, 20][..], true),
+                (&[2, 10][..], false),
+                (&[1, 20][..], false),
+            ] {
+                assert_eq!(
+                    scripted_evidence(version, version, response).await.is_ok(),
+                    success,
+                    "{version}: {response:?}"
+                );
+            }
+            let mismatched_version = if version == ProtocolVersion::TLS12 {
+                ProtocolVersion::TLS10
+            } else {
+                ProtocolVersion::TLS12
+            };
+            assert!(matches!(
+                scripted_evidence(version, mismatched_version, &[2, 20]).await,
+                Err(ProbeError::Unexpected(
+                    "early CCS did not produce a bad_record_mac alert"
+                ))
+            ));
         }
     }
 
@@ -189,11 +237,15 @@ mod tests {
         let peer = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
             read_record(&mut stream).await.unwrap();
-            let mut hello = vec![2, 0, 0, 38, 3, 3];
-            hello.extend_from_slice(&[1; 32]);
-            hello.extend_from_slice(&[0, 0, 0x2f, 0]);
-            stream.write_all(&record(22, &hello)).await.unwrap();
-            stream.write_all(&record(21, &[2, 20])).await.unwrap();
+            let hello = server_hello(ProtocolVersion::TLS12, 0x2f, 0);
+            stream
+                .write_all(&record(22, ProtocolVersion::TLS12, &hello))
+                .await
+                .unwrap();
+            stream
+                .write_all(&record(21, ProtocolVersion::TLS12, &[2, 20]))
+                .await
+                .unwrap();
         });
         assert!(
             probe_ccs(&transport, ProtocolVersion::TLS12, &[0x2f], None)
@@ -203,7 +255,7 @@ mod tests {
         peer.await.unwrap();
     }
 
-    /// Runs the probe against a peer that returns a scripted server flight.
+    /// Returns a scripted flight and verifies rejection before any CCS is sent.
     async fn scripted_flight(flight_bytes: Vec<u8>) -> Result<(), ProbeError> {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let mut transport = Transport::new(listener.local_addr().unwrap());
@@ -212,6 +264,8 @@ mod tests {
             let (mut stream, _) = listener.accept().await.unwrap();
             read_record(&mut stream).await.unwrap();
             stream.write_all(&flight_bytes).await.unwrap();
+            let mut byte = [0];
+            assert_eq!(stream.read(&mut byte).await.unwrap(), 0, "unexpected CCS");
         });
         let result = probe_ccs(&transport, ProtocolVersion::TLS12, &[0x2f], None).await;
         peer.await.unwrap();
@@ -230,7 +284,7 @@ mod tests {
 
         let mut body = vec![0; 1 << 14];
         body[..4].copy_from_slice(&[11, 255, 255, 255]);
-        let frame = record(22, &body);
+        let frame = record(22, ProtocolVersion::TLS12, &body);
         let result = scripted_flight(frame.repeat(16)).await;
         assert!(matches!(
             result,
@@ -246,19 +300,33 @@ mod tests {
             (0x0303, 0x35, 0),
             (0x0303, 0x2f, 1),
         ] {
-            let mut hello = vec![2, 0, 0, 38];
-            hello.extend_from_slice(&version.to_be_bytes());
-            hello.extend_from_slice(&[1; 32]);
-            hello.push(0);
-            hello.extend_from_slice(&suite.to_be_bytes());
-            hello.push(compression);
+            let mut hello = server_hello(ProtocolVersion(version), suite, compression);
             hello.extend_from_slice(&[14, 0, 0, 0]);
-            let result = scripted_flight(record(22, &hello)).await;
+            let result = scripted_flight(record(22, ProtocolVersion::TLS12, &hello)).await;
             assert!(matches!(
                 result,
                 Err(ProbeError::Unexpected(
                     "server chose an unexpected version or cipher"
                 ))
+            ));
+        }
+    }
+
+    /// Duplicate hellos, including changed negotiation parameters, abort before CCS.
+    #[tokio::test]
+    async fn duplicate_server_hello() {
+        for (version, suite) in [
+            (ProtocolVersion::TLS12, 0x2f),
+            (ProtocolVersion::TLS11, 0x2f),
+            (ProtocolVersion::TLS12, 0x35),
+        ] {
+            let mut hello = server_hello(ProtocolVersion::TLS12, 0x2f, 0);
+            hello.extend_from_slice(&server_hello(version, suite, 0));
+            hello.extend_from_slice(&[14, 0, 0, 0]);
+            let result = scripted_flight(record(22, ProtocolVersion::TLS12, &hello)).await;
+            assert!(matches!(
+                result,
+                Err(ProbeError::Unexpected("duplicate ServerHello"))
             ));
         }
     }
