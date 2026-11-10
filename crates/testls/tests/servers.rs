@@ -809,3 +809,30 @@ fn heartbleed_patched_server() {
     assert!(scan.has("Ticketbleed"), "{}", scan.stdout);
     assert!(!scan.has("[vuln.ticketbleed]"), "{}", scan.stdout);
 }
+
+/// Detects early CCS on OpenSSL 1.0.1g only when explicitly requested.
+#[test]
+#[ignore = "needs tests/servers running"]
+fn ccs_injection_server() {
+    let ordinary = scan("127.0.0.1:14436", &["--profile", "quick"]);
+    assert!(!ordinary.has("CCS injection"));
+    let attack = scan("127.0.0.1:14436", &["--profile", "quick", "--intrusive"]);
+    assert!(
+        attack
+            .stdout
+            .lines()
+            .any(|line| line.contains("high") && line.contains("[vuln.ccs_injection]")),
+        "{}",
+        attack.stdout
+    );
+    assert!(attack.line("CCS injection").contains("vulnerable"));
+}
+
+/// The fixed OpenSSL version must not produce a CCS injection finding.
+#[test]
+#[ignore = "needs tests/servers running"]
+fn ccs_injection_patched_server() {
+    let scan = scan("127.0.0.1:14437", &["--profile", "quick", "--intrusive"]);
+    assert!(!scan.has("[vuln.ccs_injection]"), "{}", scan.stdout);
+    assert!(scan.line("CCS injection").contains("not tested"));
+}

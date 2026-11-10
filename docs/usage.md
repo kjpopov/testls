@@ -113,6 +113,30 @@ testls' own model, not SSL Labs', and does not affect the exit status. See
 | `1` | At least one finding at or above `--fail-on` |
 | `2` | The scan itself failed |
 
+## Intrusive probes
+
+`testls --intrusive example.com` sends malformed Heartbleed and early CCS
+requests at measured TLS 1.0–1.2 versions and probes TLS 1.2 session ticket
+resumption for Ticketbleed, including with the `quick` profile. No profile
+enables these probes automatically; the server API does not expose them.
+
+A correlated heartbeat response with an extra payload byte confirms
+`vuln.heartbleed` (critical). Disclosure is limited to one byte beyond the
+supplied payload and the byte is never reported. A fatal `bad_record_mac`
+after early CCS and bogus ciphertext indicates premature cipher activation,
+reported as `vuln.ccs_injection` (high); CVE-2014-0224 exploitation also
+requires a vulnerable client and a man in the middle. Ticketbleed first
+completes a TLS 1.2 handshake for a session ticket, then requests resumption
+with a 31-byte session ID; an ID extended by one byte in the abbreviated
+server flight produces a critical `vuln.ticketbleed` finding for **possible**
+memory exposure (CVE-2016-9244). Some servers extend the ID without disclosing
+memory, so check the server implementation. The Heartbleed and CCS probes do
+not complete the handshake; the ticket probe does, and its handshake supports
+the TLS 1.2 algorithms available to rustls, so older-only servers remain not
+tested. Rejection, silence, unavailable tickets and other responses are
+**not tested** and do not establish that a server is safe. TLS 1.3 is not
+tested.
+
 ## Compliance policies
 
 `--policy` reports everything a published configuration does not allow
@@ -198,44 +222,8 @@ The request body takes `target` (with optional `:port`), `starttls`,
 `sni`, `profile`, `revocation` and `policies`. Suppressions and baselines
 do not apply.
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:cb26d83d4316daf391ce9f81614ea43619c04e0c1598de1a9902d633e760036c -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:be34954cd7273493008b41742a5b6da215cdd487c3e9bddcc52f7e140a59989d -->
-
-### Intrusive probes
-
-`testls --intrusive example.com` sends malformed heartbeat requests at measured
-TLS 1.0–1.2 versions and probes TLS 1.2 session ticket resumption for
-Ticketbleed. No scan profile enables these checks automatically; they also run
-with `quick` when requested. The server API does not expose this switch.
-
-A correlated heartbeat response containing an extra payload byte confirms
-`vuln.heartbleed` (critical). Ticketbleed obtains a ticket with a complete
-TLS 1.2 handshake, then requests resumption with a 31-byte session ID. An
-extended ID in an abbreviated server flight produces a critical
-`vuln.ticketbleed` finding for **possible** memory exposure. Some servers
-extend the ID without disclosing memory, so check the server implementation.
-Each probe requests at most one extra byte and never reports it. Rejection,
-silence, unavailable TLS 1.2 tickets and errors remain **not tested**; they do
-not establish that the server is safe. The ticket handshake supports the TLS
-1.2 algorithms available to rustls; older-only servers remain not tested.
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:0d1035f04b63779356af53967b4eb04a399b690093904091057ae220dcd2fc43 -->
-
 ### Service safety
 
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 -->
 - Without a token, only requests whose `Host` header names loopback are
   served. On other addresses every request needs
   `Authorization: Bearer TOKEN`; `--token-file` sets the token.

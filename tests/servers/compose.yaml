@@ -94,3 +94,13 @@ services:
         OPENSSL_RELEASE: OpenSSL_1_0_1g
         OPENSSL_SHA256: 3eb596dbd060859f6ff9e13c29ca4e902dd582be872be3bd8034edbdc44653d0
     ports: ["127.0.0.1:14436:4433"]
+
+  # OpenSSL 1.0.1h fixes CVE-2014-0224; 1.0.1g above is affected.
+  ccs-patched:
+    build:
+      context: .
+      dockerfile: Dockerfile.heartbleed
+      args:
+        OPENSSL_RELEASE: OpenSSL_1_0_1h
+        OPENSSL_SHA256: 4844f4631e5731db188293b2b7d61ecf79d57c3cb7bdb8abf9ab2fbd0a65da23
+    ports: ["127.0.0.1:14437:4433"]

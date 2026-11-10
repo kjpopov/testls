@@ -74,7 +74,7 @@ fn vuln(
 fn severity(finding: &str) -> Option<Severity> {
     match finding {
         "vuln.heartbleed" | "vuln.ticketbleed" => Some(Severity::Critical),
-        "vuln.crime" => Some(Severity::High),
+        "vuln.crime" | "vuln.ccs_injection" => Some(Severity::High),
         "vuln.renegotiation" | "vuln.opossum" => Some(Severity::Medium),
         "vuln.beast" | "vuln.logjam" | "vuln.fallback_scsv" | "vuln.raccoon" | "vuln.breach"
         | "vuln.alpaca" => Some(Severity::Low),

@@ -551,6 +551,12 @@ const EXPLANATIONS: &[Explanation] = &[
         "CVE-2016-9244; RFC 5077 §3.4",
     ),
     entry(
+        "vuln.ccs_injection",
+        "CCS injection: premature cipher activation",
+        "The server appears to activate its cipher before the key exchange. CVE-2014-0224 allows a man-in-the-middle to weaken connections when both client and server are affected. Upgrade the TLS implementation.",
+        "CVE-2014-0224; OpenSSL security advisory 2014-06-05; RFC 5246 §7.1",
+    ),
+    entry(
         "vuln.heartbleed",
         "Heartbleed: heartbeat discloses memory",
         "An opt-in malformed heartbeat received a correlated response containing more payload bytes than were supplied. Upgrade the affected TLS implementation and rotate potentially exposed secrets. Disclosed bytes are not reported.",

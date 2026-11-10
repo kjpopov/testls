@@ -17,13 +17,15 @@ if `gh` is allowed); update it when a session ends.
   and the six stale remote branches (`feat/cidr-targets`,
   `feat/report-http-headers`, `feat/intrusive-checks`, `feat/web-ui`,
   `fix/server-review`, CodeRabbit's `review-latest-pull-request`
-  by-product of closed PR #153); only `origin/main` remains.
+  by-product of closed PR #153); only `origin/main` remained immediately
+  after cleanup. PR #156 was subsequently merged by the maintainer;
+  PR #157's CodeRabbit branch is now active.
 - v0.5.0 contains `--starttls smtp|imap|pop3|ftp|xmpp|ldap|postgres|mysql`
   (decisions #68–#75), `--mx` (#76–#77, `testls-probe/src/mx.rs`,
   `mail_hosts` in `main.rs`), PR #117 security hardening (#78–#81),
   Codecov upload and Test Analytics (#82, #86), BREACH/ALPACA/Opossum
   (#83–#85) and grading (#87–#89). Intrusive checks moved to the backlog
-  (decision #90). Next decision log number: **#91**.
+  (decision #90), later scheduled for v0.6.1 (#98).
 - Grading code map: `testls-checks/src/grade.rs` (`grade()`, `Grade`,
   `Letter`), rendered by `text::grade` / `grade_label` and every summary
   format via `sarif::Scan::grade`; `main.rs` grades before `triage`.
@@ -59,6 +61,25 @@ if `gh` is allowed); update it when a session ends.
 - CodeRabbit runs the `assertive` profile with auto-approval up to `low`
   merge risk (PLAN #46, #55, #61).
 
+## Local OpenCode configuration (2026-11-10)
+
+- Added `lan-build` primary agent and `/lan` command to
+  `~/.config/opencode/opencode.jsonc` at the maintainer's request. Command
+  selects `lan/coder`; agent requests one-time OpenCode skill loading and
+  concise inspect/act/verify cycles. Defaults, providers and permissions
+  unchanged. JSONC parsing and configuration assertions pass; no live model
+  run performed. Existing conflict markers in repository docs left untouched.
+- Installed local TUI plugin `~/.config/opencode/llama-progress` via `cli.json`;
+  disables only `opencode.sidebar.context`, reproduces cloud context/cost and
+  shows read-only `/slots` telemetry for `local/coder` / `lan/coder`. Live
+  input counts + indeterminate bar (API lacks prompt target), generation counts;
+  server-wide, not session-correlated. Endpoints explicitly allow-listed,
+  no credentials/redirects, 1s serialized polling, 2.5s timeout, 1MiB bound.
+  Ten Node tests pass; live LAN fetch and CLI plugin reconciliation pass.
+  Separate PTY visual smoke denied by permission; layout not visually checked.
+  To uninstall remove both `-opencode.sidebar.context` and `./llama-progress`
+  from `cli.json`. No model/server settings changed.
+
 ## Waiting on the maintainer
 
 - crates.io: trusted publishing works. v0.5.0 was published by rerunning
@@ -69,10 +90,6 @@ if `gh` is allowed); update it when a session ends.
   with the moderators). Keep generating `packaging/winget/X.Y.Z/` in the
   packages PR, but do not remind the maintainer each release.
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:8ee8a4a669a565448ad298fbcf9e32f47584f4552e222e14cd85291c854158e7 -->
-
 ## Intrusive checks implementation in progress
 
 - v0.6.1 milestone (PLAN decision #98), one PR per check: first PR of
@@ -82,59 +99,88 @@ if `gh` is allowed); update it when a session ends.
   port 14435. No profile or server API implicitly enables it. Correlated
   pre-handshake disclosure is critical; rejection and silence remain not
   tested.
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:d82e77156a5694fb7efdb4f8cd5ec7ce600a8ddf9f610cd347d337748c7bb03a -->
-
 - PR #154 CI repair: terminate the pre-handshake exchange after the bounded
   heartbeat to flush OpenSSL 1.0.1 buffered replies; scripted peers verify
   the termination record and heartbeat followed by a fatal alert.
-<!-- coderabbit-ai-generated:v1 -->
+- PR #157 (merged 2026-11-10) implements an opt-in early CCS probe in
+  `testls-probe/src/ccs.rs`. A fatal `bad_record_mac` following the probe
+  indicates early cipher activation; other replies remain not tested. The
+  OpenSSL 1.0.1g and 1.0.1h fixtures exercise affected and patched versions.
+- This branch (PR #158) implements the opt-in Ticketbleed probe in
+  `testls-probe/src/ticketbleed.rs`: a complete TLS 1.2 handshake for a
+  session ticket, then resumption with a 31-byte session ID; an ID extended
+  by one byte in the abbreviated flight flags possible memory exposure.
+  Reuses the OpenSSL 1.0.1f heartbleed fixture on port 14435. Ticketbleed and
+  ROBOT remain open on the milestone.
 
-<!-- coderabbit-ai-generated-section:v1:45f34ed754a467c8ad81b620ddde1b794ab5d07d9c6765b18c8cd2b7ab184547 -->
-
-- Ticketbleed implementation is in progress on this branch: TLS 1.2 ticket
-  acquisition and a 31-byte ID check behind `--intrusive`; extended IDs flag
-  possible exposure, since similar protocol errors can have other causes.
-- CCS injection and ROBOT still require implementations.
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 -->
-  Do not mark the v0.6.1 milestone done until CCS injection, Ticketbleed
-  and ROBOT are each merged.
+Do not mark the v0.6.1 milestone done until Ticketbleed (#158) and ROBOT
+are each merged.
 
 ## Next work
 
-<!-- /coderabbit-ai-generated:v1 -->
+Next free decision: #101 (#99 CCS, #100 Ticketbleed in PR #158). Recheck
+fresh `main` before assigning a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
    packages PR #151 merged. New crates need a manual first publish plus a
    trusted-publishing entry by the maintainer before `release.yml` can
    publish them (done for `testls-scan`, `testls-server`). Maintainer:
    Marketplace tick.
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:0cde5f5ee50a026a151fa2aa7a6cfdda8aafcf3fe110d7de3ca765c5a0ebc50b -->
-
 2. v0.6 web service done: `testls-scan` (#93), `testls-server` + `testls
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-   Next decision number: **#100**.
-
-<!-- /coderabbit-ai-generated:v1 -->
 3. v0.6.1 (PLAN decision #98): intrusive checks, one PR each behind
-   `--intrusive` — Heartbleed done in #154; next CCS injection,
-   Ticketbleed, ROBOT. Then backlog: `--delay`, `--parallel`.
+   `--intrusive` — Heartbleed done in #154, CCS injection in #157;
+   Ticketbleed in review (#158); next ROBOT. Then backlog: `--delay`,
+   `--parallel`.
 
 ## Habits that worked
 
+- Current review (2026-11-10): maintainer requested `lan/coder`
+  (Qwen3.8 27B) for code reviews. LAN review of #157 completed; parent
+  verified two low-priority follow-ups: TLS 1.0/1.1 evidence/framing tests
+  and duplicate-ServerHello rejection. No blocker found. Speculative
+  interoperability and wording-only suggestions were not forwarded.
+  Posted COMMENT review on #157: `pullrequestreview-5840532885` at
+  `065d761`. Maintainer requested fixes, commit/push and merge. Both
+  findings addressed: versioned peer tests assert CCS/handshake framing
+  and reject mismatched alert versions; duplicate hellos (identical or
+  changed version/suite) are rejected before CCS. Regression reproduced
+  the old behavior before the fix; all six CCS unit tests now pass.
+  Initial-head CI is green, including all 16 container integration tests.
+  Initial-head local workspace tests, fmt, Clippy and `cargo deny check` pass (deny
+  emits existing dependency warnings). Local MSRV check unavailable:
+  `rustup` is not installed. Local affected-server CCS integration passed
+  on retry (177 s); patched-server CCS integration also passed (97 s).
+  Only `ccs-patched` was started this session and stopped after tests;
+  pre-existing Heartbleed containers were left running.
+  Fix-round local workspace tests, fmt, Clippy (`-D warnings`), cargo-deny
+  and both CCS integration tests pass (177 s total). Fixes committed/pushed
+  in `6b0476c`; both core-review threads resolved. CI at `6b0476c` is green,
+  including MSRV and integration. LAN fix rereview failed with a connection
+  timeout (`ETIMEDOUT`), not a review verdict. CodeRabbit marked the runtime
+  code LGTM at `6b0476c` and
+  requested four documentation follow-ups: marker cleanup, one decision-
+  number rule, intrusive CLI section placement and High-severity rationale.
+  All addressed in `2afe893`; four threads replied to and resolved, rereview
+  requested. Final-head CI/review pending; runtime severity unchanged
+  (NVD CVSS 3.1 7.4 High; server-only evidence, client/MITM prerequisites).
+  No approval or merge performed; human security review still required.
+  Reviewer shell denials diagnosed: global `agents/review.md` allows only
+  `git diff/log/show/status/blame` prefixes; `git -C`, `head`/`tail` pipes,
+  `ls`, `cat` and `echo` are denied. At the maintainer's request, permanently
+  added permission-aware instructions to `~/.config/opencode/agents/review.md`:
+  simple Git commands with `workdir`, dedicated read/glob/grep tools, no
+  repeated denied operations; parent handles tests and GitHub operations.
+  Permissions and default model unchanged; LAN reviewer was also steered.
+
 - CodeRabbit no longer auto-reviews (repo under 10 stars; trigger with
-  `@coderabbitai review`) and is slow. Maintainer prefers a local review
-  by a `review` subagent with a GPT model (used `litellm/gpt-6.1-sol#high`);
-  when the maintainer allows `gh` for the session, tell it to read the PR
-  with the `gh` CLI (not webfetch) and post its findings as a PR review;
+  `@coderabbitai review`) and is slow. Previously used a local review
+  by a `review` subagent with a GPT model (`litellm/gpt-6.1-sol#high`);
+  the latest maintainer request selects the LAN model above instead.
+  When the maintainer allows `gh` for the session, the parent reads the PR
+  with the `gh` CLI (not webfetch) and posts validated reviewer findings;
   fix them, then merge when CI is green.
 
 - One topic per PR, all review fixes in one commit per round, reply to each
