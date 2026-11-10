@@ -186,6 +186,7 @@ pub(crate) async fn later_sections(
     let mut vulns = vulnerability_section(transport, measured, sni, deep).await;
     if intrusive {
         vulns.push(heartbleed_section(transport, ciphers, sni).await);
+        vulns.push(ticketbleed_section(transport, sni).await);
     }
     on_event(Event::Vulnerabilities(&vulns));
     findings.extend(vulnerability_findings(&vulns));
@@ -505,6 +506,26 @@ async fn heartbleed_section(
             detail.join("; ")
         },
         finding: None,
+    }
+}
+
+/// Checks for an extended session ID on TLS 1.2 ticket resumption.
+async fn ticketbleed_section(transport: &Transport, sni: Option<&str>) -> Vulnerability {
+    match testls_probe::probe_ticketbleed(transport, sni).await {
+        Ok(()) => Vulnerability {
+            id: "ticketbleed",
+            name: "Ticketbleed",
+            status: testls_checks::VulnStatus::Vulnerable,
+            detail: "TLS 1.2 ticket resumption extended the session ID by one byte; possible memory exposure".to_owned(),
+            finding: Some("vuln.ticketbleed"),
+        },
+        Err(e) => Vulnerability {
+            id: "ticketbleed",
+            name: "Ticketbleed",
+            status: testls_checks::VulnStatus::NotTested,
+            detail: e.to_string(),
+            finding: None,
+        },
     }
 }
 

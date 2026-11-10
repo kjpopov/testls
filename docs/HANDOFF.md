@@ -89,7 +89,16 @@ if `gh` is allowed); update it when a session ends.
 - PR #154 CI repair: terminate the pre-handshake exchange after the bounded
   heartbeat to flush OpenSSL 1.0.1 buffered replies; scripted peers verify
   the termination record and heartbeat followed by a fatal alert.
-- CCS injection, Ticketbleed and ROBOT still require later implementations.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:45f34ed754a467c8ad81b620ddde1b794ab5d07d9c6765b18c8cd2b7ab184547 -->
+
+- Ticketbleed implementation is in progress on this branch: TLS 1.2 ticket
+  acquisition and a 31-byte ID check behind `--intrusive`; extended IDs flag
+  possible exposure, since similar protocol errors can have other causes.
+- CCS injection and ROBOT still require implementations.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 -->
   Do not mark the v0.6.1 milestone done until CCS injection, Ticketbleed
@@ -104,11 +113,17 @@ if `gh` is allowed); update it when a session ends.
    trusted-publishing entry by the maintainer before `release.yml` can
    publish them (done for `testls-scan`, `testls-server`). Maintainer:
    Marketplace tick.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:0cde5f5ee50a026a151fa2aa7a6cfdda8aafcf3fe110d7de3ca765c5a0ebc50b -->
+
 2. v0.6 web service done: `testls-scan` (#93), `testls-server` + `testls
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-   Next decision number: **#99**.
+   Next decision number: **#100**.
+
+<!-- /coderabbit-ai-generated:v1 -->
 3. v0.6.1 (PLAN decision #98): intrusive checks, one PR each behind
    `--intrusive` — Heartbleed done in #154; next CCS injection,
    Ticketbleed, ROBOT. Then backlog: `--delay`, `--parallel`.

@@ -10,12 +10,26 @@ All notable changes to `testls` are listed here. The format follows
 
 ## [Unreleased]
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:abec1508f449237a1fee8cc6db0221625132b79e19524fe0438c1d121ad00fa0 -->
+
 ### Added
 
+- Opt-in Ticketbleed probe for TLS 1.2 session ticket resumption; abnormal
+  session ID extension flags possible memory exposure.
 - Explicit `--intrusive` pre-handshake Heartbleed probe for measured TLS
   1.0–1.2 versions. Only correlated disclosure creates a critical finding;
   refused or unanswered probes remain inconclusive. This is the first
   part of the intrusive-check series.
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:299d4064110e5191f3513c5f02eb5fc7c6943e3c9806e8a37abb07db5fa7e17e -->
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 
 <!-- /coderabbit-ai-generated:v1 -->

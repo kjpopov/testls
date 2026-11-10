@@ -202,19 +202,29 @@ do not apply.
 
 <!-- coderabbit-ai-generated-section:v1:cb26d83d4316daf391ce9f81614ea43619c04e0c1598de1a9902d633e760036c -->
 
-### Intrusive Heartbleed probe
+<!-- coderabbit-ai-generated:v1 -->
 
-`testls --intrusive example.com` explicitly sends malformed heartbeat requests
-at measured TLS 1.0–1.2 versions. This first part of the intrusive-check series
-implements Heartbleed only; CCS injection, Ticketbleed and ROBOT remain in the
-backlog. No scan profile enables it automatically. It also runs with `quick`
-when explicitly requested. The server API does not expose this switch.
+<!-- coderabbit-ai-generated-section:v1:be34954cd7273493008b41742a5b6da215cdd487c3e9bddcc52f7e140a59989d -->
 
-Only a correlated response containing an extra payload byte confirms
-`vuln.heartbleed` (critical). The request limits disclosure to one byte beyond
-what was supplied; disclosed bytes are never included in reports. This is a
-pre-handshake probe: rejection, silence, missing heartbeat negotiation and
-errors remain **not tested**, and do not establish that a server is safe.
+### Intrusive probes
+
+`testls --intrusive example.com` sends malformed heartbeat requests at measured
+TLS 1.0–1.2 versions and probes TLS 1.2 session ticket resumption for
+Ticketbleed. No scan profile enables these checks automatically; they also run
+with `quick` when requested. The server API does not expose this switch.
+
+A correlated heartbeat response containing an extra payload byte confirms
+`vuln.heartbleed` (critical). Ticketbleed obtains a ticket with a complete
+TLS 1.2 handshake, then requests resumption with a 31-byte session ID. An
+extended ID in an abbreviated server flight produces a critical
+`vuln.ticketbleed` finding for **possible** memory exposure. Some servers
+extend the ID without disclosing memory, so check the server implementation.
+Each probe requests at most one extra byte and never reports it. Rejection,
+silence, unavailable TLS 1.2 tickets and errors remain **not tested**; they do
+not establish that the server is safe. The ticket handshake supports the TLS
+1.2 algorithms available to rustls; older-only servers remain not tested.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- coderabbit-ai-generated:v1 -->
 

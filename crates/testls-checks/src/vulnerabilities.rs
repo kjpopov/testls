@@ -73,7 +73,7 @@ fn vuln(
 /// Severity of the findings this module owns.
 fn severity(finding: &str) -> Option<Severity> {
     match finding {
-        "vuln.heartbleed" => Some(Severity::Critical),
+        "vuln.heartbleed" | "vuln.ticketbleed" => Some(Severity::Critical),
         "vuln.crime" => Some(Severity::High),
         "vuln.renegotiation" | "vuln.opossum" => Some(Severity::Medium),
         "vuln.beast" | "vuln.logjam" | "vuln.fallback_scsv" | "vuln.raccoon" | "vuln.breach"
@@ -644,6 +644,22 @@ mod tests {
     use testls_probe::CipherOrder;
 
     use super::*;
+
+    /// Ticketbleed findings keep their severity and possible-exposure detail.
+    #[test]
+    fn ticketbleed_finding() {
+        let item = Vulnerability {
+            id: "ticketbleed",
+            name: "Ticketbleed",
+            status: VulnStatus::Vulnerable,
+            detail: "possible memory exposure".to_owned(),
+            finding: Some("vuln.ticketbleed"),
+        };
+        let findings = vulnerability_findings(&[item]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Critical);
+        assert_eq!(findings[0].message, "Ticketbleed: possible memory exposure");
+    }
 
     /// `TLS_RSA_WITH_3DES_EDE_CBC_SHA`.
     const RSA_3DES: u32 = 0x000a;
