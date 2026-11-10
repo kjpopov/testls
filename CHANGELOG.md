@@ -15,6 +15,8 @@ All notable changes to `testls` are listed here. The format follows
 - Opt-in Ticketbleed probe for TLS 1.2 session ticket resumption; abnormal
   session ID extension creates a high finding for possible memory exposure;
   an unchanged echo reports not vulnerable. Skipped when TLS 1.2 is not offered.
+- Opt-in ROBOT probe compares RSA padding responses and reports a high
+  finding for a repeated alert difference; inconclusive results remain untested.
 
 ## [0.6.0] - 2026-11-08
 

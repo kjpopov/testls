@@ -12,6 +12,7 @@ authors.workspace = true
 testls-data.workspace = true
 testls-wire.workspace = true
 getrandom.workspace = true
+num-bigint.workspace = true
 tokio = { workspace = true, features = ["net", "io-util", "time"] }
 rustls.workspace = true
 tokio-rustls.workspace = true

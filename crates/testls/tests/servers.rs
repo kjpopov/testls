@@ -785,16 +785,26 @@ fn stop_server(mut child: std::process::Child, _stderr: impl Read) {
     child.wait().expect("reap testls serve");
 }
 
-/// OpenSSL 1.0.1f discloses memory only when attack traffic is enabled.
+/// OpenSSL 1.0.1f discloses memory but yields no ROBOT alert difference.
 #[test]
 #[ignore = "needs tests/servers running"]
 fn heartbleed_server() {
     let ordinary = scan("127.0.0.1:14435", &["--profile", "quick"]);
     assert!(!ordinary.has("Heartbleed"));
     assert!(!ordinary.has("Ticketbleed"));
+    assert!(!ordinary.has("ROBOT"));
     let attack = scan("127.0.0.1:14435", &["--profile", "quick", "--intrusive"]);
     assert!(attack.has("[vuln.heartbleed]"), "{}", attack.stdout);
     assert!(attack.has("Ticketbleed"), "{}", attack.stdout);
+    // This fixture returns the same bad_record_mac alert for all RSA vectors;
+    // only a reproducible alert difference could establish a ROBOT oracle.
+    let robot = attack.line("ROBOT");
+    assert!(robot.contains("not tested"), "{robot}");
+    assert!(
+        robot.contains("no reproducible RSA padding alert difference"),
+        "{robot}"
+    );
+    assert!(!attack.has("[vuln.robot]"), "{}", attack.stdout);
     assert_eq!(attack.code, 1);
 }
 

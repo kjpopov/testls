@@ -166,7 +166,7 @@ All behind the opt-in `--intrusive` flag (decision #97), one PR per check.
 - [x] Heartbleed (PR #154)
 - [x] CCS injection (PR #157)
 - [x] Ticketbleed (PR #158)
-- [ ] ROBOT
+- [x] ROBOT (`--intrusive`; decision #101)
 
 ### v0.7 — Monitoring (sketch)
 - Target groups with owners, expiry dashboard, scheduled rescans with diff
@@ -203,16 +203,13 @@ Not scheduled; pulled into a milestone when someone picks it up.
 - Docs: catalogue of checks, mapping from testssl.sh options, threat model
 - Politeness: `--delay` between connections to one target
 - Bounded parallel probes per target (`--parallel`, #8 as planned, see #89)
-- Intrusive checks behind `--intrusive`: see the v0.6.1 milestone
-  (Heartbleed, CCS injection and Ticketbleed implemented; ROBOT pending;
-  moved from v0.5, #90)
+- Intrusive checks are tracked in v0.6.1 (moved from v0.5, #90).
 
 ## Open questions
 
 None at the moment (default profile and politeness settled in #88, #89).
 
 ## Decision log
-
 
 | # | Decision | Rationale |
 | --- | --- | --- |
@@ -316,3 +313,4 @@ None at the moment (default profile and politeness settled in #88, #89).
 | 98 | Intrusive checks are scheduled as milestone v0.6.1, one PR per check behind `--intrusive`: Heartbleed (shipped in PR #154, #97), then CCS injection, Ticketbleed and ROBOT | Amends #34 and #90; staging one vulnerability per PR keeps the review, the test server and the fixtures small while attack traffic stays opt-in |
 | 99 | CCS injection probe sends premature CCS and bogus ciphertext for measured TLS 1.0–1.2 only when `--intrusive` is set, after a flight containing exactly one validated ServerHello; a fatal bad_record_mac at the measured version indicates early cipher activation, other outcomes remain not tested | Keep the attack opt-in, reject duplicate hellos before attack traffic, and avoid treating rejection or silence as proof of safety. High follows [NVD CVSS 3.1, 7.4](https://nvd.nist.gov/vuln/detail/CVE-2014-0224), reflecting confidentiality/integrity compromise despite high attack complexity; the [OpenSSL 2014-06-05 advisory](https://openssl-library.org/news/secadv/20140605.txt) requires both vulnerable client and server plus MITM, so this probe confirms only the server-side prerequisite, not a completed exploit |
 | 100 | Ticketbleed uses a TLS 1.2 ticket and a 31-byte session ID; an extended matching ID in an abbreviated flight flags possible memory exposure, rated High to match [NVD CVSS 3.x, 7.5](https://nvd.nist.gov/vuln/detail/CVE-2016-9244). An unchanged echo plus valid CCS reports not vulnerable; refusals, unsupported handshakes and TLS 1.2 not offered remain not tested | Request at most one extra byte; a similar protocol error can have no security impact; RFC 5077 §3.4 requires the echo, so it is a real negative |
+| 101 | With `--intrusive`, compare a valid RSA key exchange block against three malformed PKCS#1 v1.5 blocks twice at one measured static RSA suite per TLS 1.0–1.2 version. Require the same certificate, version and suite and a repeated fatal alert difference against a `bad_record_mac` control for a High finding; other results remain not tested. Add `num-bigint` as a direct dependency for RSA public-key modular exponentiation; it was already transitive in the lockfile | Bounds traffic and avoids claiming that untested padding or timing oracles are absent. Any attempt error stops that suite's probe without retries, consistent with #89; a transient failure can leave a real oracle not tested, an accepted limitation of the traffic bound. High follows CERT/CC's CVSS 3.0 score of 7.5 for [CVE-2017-13099 in NVD](https://nvd.nist.gov/vuln/detail/CVE-2017-13099), distinct from NIST's 5.9 Medium assessment. The probe confirms a padding-dependent alert oracle, not a completed decryption attack |

@@ -106,20 +106,42 @@ if `gh` is allowed); update it when a session ends.
   `testls-probe/src/ccs.rs`. A fatal `bad_record_mac` following the probe
   indicates early cipher activation; other replies remain not tested. The
   OpenSSL 1.0.1g and 1.0.1h fixtures exercise affected and patched versions.
-- This branch (PR #158) implements the opt-in Ticketbleed probe in
-  `testls-probe/src/ticketbleed.rs`: a complete TLS 1.2 handshake for a
-  session ticket, then resumption with a 31-byte session ID; an ID extended
-  by one byte in the abbreviated flight flags possible memory exposure
-  (High, per NVD); an unchanged echo reports not vulnerable; skipped when
-  TLS 1.2 is not offered. Review round 1 addressed. Reuses the OpenSSL 1.0.1f heartbleed fixture on port 14435. Ticketbleed and
-  ROBOT remain open on the milestone.
-
-Do not mark the v0.6.1 milestone done until Ticketbleed (#158) and ROBOT
-are each merged.
+- Ticketbleed merged in PR #158. ROBOT is implemented on the current branch
+  in `testls-probe/src/robot.rs` and `testls-scan/src/sections.rs` (decision
+  #101); it is opt-in and reports only reproducible alert differences. Equal
+  alerts, failed comparisons and timing oracles remain untested. It uses
+  `num-bigint`, already present transitively in the lockfile.
+- v0.6.1 remains open until ROBOT is merged.
+- PR #159 review fixes (2026-11-10): the missing-separator vector now
+  excludes zero bytes from the premaster tail; the regression failed before
+  the fix. Added malformed-flight, noncomparable-alert, invalid-key/input
+  tests and a scripted positive scan-to-High-finding test. Strengthened the
+  Heartbleed fixture's ROBOT assertion to require an inconclusive verdict
+  and no ROBOT finding when all RSA vectors receive the same alert. Removed
+  generated Markdown markers, restored list order, moved #101 into the
+  decision table and documented `num-bigint` plus CERT/CC 7.5 vs NIST 5.9
+  severity scores.
+  Targeted LLVM coverage: `robot.rs` 428/429 lines (99.77%; only the defensive
+  modulus guard is uncovered), `robot_section` 28/28 (100%). OCSP fixtures,
+  fmt, Clippy (`-D warnings`), workspace tests with LLVM coverage, cargo-deny
+  and MSRV (`rustup run 1.97 cargo check --workspace --locked`) pass.
+  The strengthened Heartbleed integration and isolated patched-Heartbleed
+  test pass. Initial parallel CCS tests hit a blocked shared fixture;
+  maintainer authorized restarting only `servers-heartbleed-patched-1`.
+  Sequential CCS retries pass. Fresh CI at `490fa3e` passes all 26 checks,
+  including all 16 container tests. Codecov patch coverage is 99.82% (one
+  uncovered defensive modulus guard), project coverage 97.88%. The original
+  local SMTP test remains pending; CI's SMTP test passed.
+  All five inline review threads are resolved; the outside-diff #102 fix
+  was reported. CodeRabbit accepted the fixes; its follow-up low-value note
+  is addressed in #101: attempt errors stop the suite's probe without
+  retries per #89, accepting inconclusive results on transient failures.
+  Human security review remains required; no merge authorized. Existing
+  `handoff-local` stash is untouched.
 
 ## Next work
 
-Next free decision: #101 (#99 CCS, #100 Ticketbleed in PR #158). Recheck
+Next free decision: #102 (#99 CCS, #100 Ticketbleed in PR #158, #101 ROBOT). Recheck
 fresh `main` before assigning a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
@@ -131,10 +153,9 @@ fresh `main` before assigning a number.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-3. v0.6.1 (PLAN decision #98): intrusive checks, one PR each behind
-   `--intrusive` — Heartbleed done in #154, CCS injection in #157;
-   Ticketbleed in review (#158); next ROBOT. Then backlog: `--delay`,
-   `--parallel`.
+3. v0.6.1: Heartbleed, CCS injection and Ticketbleed are merged; ROBOT is
+   implemented on this branch and awaits review and merge. Later backlog:
+   `--delay`, `--parallel`.
 
 ## Habits that worked
 

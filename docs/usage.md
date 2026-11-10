@@ -115,10 +115,16 @@ testls' own model, not SSL Labs', and does not affect the exit status. See
 
 ## Intrusive probes
 
-`testls --intrusive example.com` sends malformed Heartbleed and early CCS
-requests at measured TLS 1.0–1.2 versions and probes TLS 1.2 session ticket
-resumption for Ticketbleed, including with the `quick` profile. No profile
-enables these probes automatically; the server API does not expose them.
+`testls --intrusive example.com` enables Heartbleed, CCS injection,
+Ticketbleed and ROBOT probes, including with the `quick` profile. No profile
+enables them automatically; the server API does not expose them.
+
+ROBOT compares repeated fatal alerts from valid and malformed RSA padding at
+one measured static RSA suite per TLS 1.0–1.2 version. A reproducible
+difference against a `bad_record_mac` control produces a high `vuln.robot`
+finding. Equal alerts, other responses, and unsupported suites are **not
+tested**; they do not establish that the server is safe. Only these padding
+variants and the selected suites are covered; timing oracles are not tested.
 
 A correlated heartbeat response with an extra payload byte confirms
 `vuln.heartbleed` (critical). Disclosure is limited to one byte beyond the

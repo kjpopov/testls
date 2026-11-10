@@ -188,6 +188,7 @@ pub(crate) async fn later_sections(
         vulns.push(heartbleed_section(transport, ciphers, sni).await);
         vulns.push(ccs_section(transport, ciphers, sni).await);
         vulns.push(ticketbleed_section(transport, protocols, sni).await);
+        vulns.push(robot_section(transport, ciphers, sni).await);
     }
     on_event(Event::Vulnerabilities(&vulns));
     findings.extend(vulnerability_findings(&vulns));
@@ -567,6 +568,47 @@ fn ticketbleed_item(result: Result<TicketbleedVerdict, testls_probe::ProbeError>
     }
 }
 
+/// Compares RSA padding responses for measured static RSA suites.
+async fn robot_section(
+    transport: &Transport,
+    ciphers: &[CipherSection],
+    sni: Option<&str>,
+) -> Vulnerability {
+    let mut detail = Vec::new();
+    for (version, suites) in intrusive_suites(ciphers) {
+        // One static RSA suite per protocol bounds attack traffic.
+        if let Some(suite) = suites.into_iter().find(|id| {
+            testls_data::cipher_suite(*id).is_some_and(|c| c.name.starts_with("TLS_RSA_WITH_"))
+        }) {
+            match testls_probe::probe_robot(transport, version, suite, sni).await {
+                Ok(()) => {
+                    return Vulnerability {
+                        id: "robot",
+                        name: "ROBOT",
+                        status: testls_checks::VulnStatus::Vulnerable,
+                        detail: format!(
+                            "{version}: repeated RSA padding-dependent fatal alerts for suite {suite:#06x}"
+                        ),
+                        finding: Some("vuln.robot"),
+                    };
+                }
+                Err(e) => detail.push(format!("{version} {suite:#06x}: {e}")),
+            }
+        }
+    }
+    Vulnerability {
+        id: "robot",
+        name: "ROBOT",
+        status: testls_checks::VulnStatus::NotTested,
+        detail: if detail.is_empty() {
+            "no measured static RSA TLS 1.0–1.2 suite".to_owned()
+        } else {
+            detail.join("; ")
+        },
+        finding: None,
+    }
+}
+
 /// Tests measured TLS 1.0–1.2 versions for premature cipher activation.
 async fn ccs_section(
     transport: &Transport,
@@ -605,11 +647,101 @@ async fn ccs_section(
 
 #[cfg(test)]
 mod tests {
-    //! Unit tests for section results when probes fail.
+    //! Unit tests for section results and scripted vulnerability evidence.
 
     use std::net::SocketAddr;
 
     use super::*;
+
+    /// Reads one complete record from the scripted ROBOT client.
+    async fn robot_record(stream: &mut tokio::net::TcpStream, minor: u8) -> Vec<u8> {
+        use tokio::io::AsyncReadExt;
+        let mut header = [0; 5];
+        stream.read_exact(&mut header).await.unwrap();
+        assert_eq!(&header[1..3], &[3, minor]);
+        let mut body = vec![0; usize::from(u16::from_be_bytes([header[3], header[4]]))];
+        stream.read_exact(&mut body).await.unwrap();
+        body
+    }
+
+    /// Repeated alert evidence becomes a vulnerable item and a High finding.
+    #[tokio::test]
+    async fn robot_evidence_maps_to_finding() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let transport = Transport::new(listener.local_addr().unwrap());
+        let peer = tokio::spawn(async move {
+            let cert = include_bytes!("../../testls-probe/src/testdata/rsa1024.cert.der");
+            // RFC 5246 §7.4: ServerHello, Certificate and ServerHelloDone.
+            let mut flight = vec![2, 0, 0, 38, 3, 3];
+            flight.extend_from_slice(&[1; 32]);
+            flight.extend_from_slice(&[0, 0, 0x2f, 0]);
+            flight.push(11);
+            for len in [cert.len() + 6, cert.len() + 3, cert.len()] {
+                flight.extend_from_slice(&u32::try_from(len).unwrap().to_be_bytes()[1..]);
+            }
+            flight.extend_from_slice(cert);
+            flight.extend_from_slice(&[14, 0, 0, 0]);
+            let mut record = vec![22, 3, 3];
+            record.extend_from_slice(&u16::try_from(flight.len()).unwrap().to_be_bytes());
+            record.extend_from_slice(&flight);
+            for alert in [20, 40, 20, 20, 20, 40, 20, 20] {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                robot_record(&mut stream, 1).await;
+                stream.write_all(&record).await.unwrap();
+                assert_eq!(
+                    &robot_record(&mut stream, 3).await[..6],
+                    &[16, 0, 0, 130, 0, 128]
+                );
+                assert_eq!(robot_record(&mut stream, 3).await, [1]);
+                assert_eq!(robot_record(&mut stream, 3).await, [0; 64]);
+                stream.write_all(&[21, 3, 3, 0, 2, 2, alert]).await.unwrap();
+            }
+        });
+        let ciphers = [CipherSection {
+            version: ProtocolVersion::TLS12,
+            outcome: Ok(CipherResult {
+                version: ProtocolVersion::TLS12,
+                // Skip ECDHE and stop at the first static RSA suite.
+                suites: vec![0xc02f, 0x2f, 0x35],
+                order: testls_probe::CipherOrder::Server,
+            }),
+        }];
+        let item = robot_section(&transport, &ciphers, Some("localhost")).await;
+        tokio::time::timeout(std::time::Duration::from_secs(2), peer)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(item.id, "robot");
+        assert_eq!(item.name, "ROBOT");
+        assert_eq!(item.status, testls_checks::VulnStatus::Vulnerable);
+        assert_eq!(item.finding, Some("vuln.robot"));
+        assert!(item.detail.contains("TLSv1.2"));
+        assert!(item.detail.contains("0x002f"));
+        let findings = vulnerability_findings(&[item]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id, "vuln.robot");
+        assert_eq!(findings[0].severity, Severity::High);
+    }
+
+    /// Missing RSA suites and refused connections are inconclusive.
+    #[tokio::test]
+    async fn robot_without_rsa_or_connection() {
+        let transport = Transport::new(SocketAddr::from(([127, 0, 0, 1], 9)));
+        let make = |suites| CipherSection {
+            version: ProtocolVersion::TLS12,
+            outcome: Ok(CipherResult {
+                version: ProtocolVersion::TLS12,
+                suites,
+                order: testls_probe::CipherOrder::NotApplicable,
+            }),
+        };
+        for suites in [vec![0xc02f], vec![0x2f]] {
+            let item = robot_section(&transport, &[make(suites)], None).await;
+            assert_eq!(item.status, testls_checks::VulnStatus::NotTested);
+            assert!(item.finding.is_none());
+        }
+    }
 
     /// Intrusive probes keep successful legacy measurements in original order.
     #[test]

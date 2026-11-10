@@ -74,7 +74,9 @@ fn vuln(
 fn severity(finding: &str) -> Option<Severity> {
     match finding {
         "vuln.heartbleed" => Some(Severity::Critical),
-        "vuln.crime" | "vuln.ccs_injection" | "vuln.ticketbleed" => Some(Severity::High),
+        "vuln.crime" | "vuln.ccs_injection" | "vuln.ticketbleed" | "vuln.robot" => {
+            Some(Severity::High)
+        }
         "vuln.renegotiation" | "vuln.opossum" => Some(Severity::Medium),
         "vuln.beast" | "vuln.logjam" | "vuln.fallback_scsv" | "vuln.raccoon" | "vuln.breach"
         | "vuln.alpaca" => Some(Severity::Low),
@@ -644,6 +646,22 @@ mod tests {
     use testls_probe::CipherOrder;
 
     use super::*;
+
+    /// A confirmed RSA oracle produces a high-severity finding.
+    #[test]
+    fn robot_finding() {
+        let item = Vulnerability {
+            id: "robot",
+            name: "ROBOT",
+            status: VulnStatus::Vulnerable,
+            detail: "RSA padding-dependent alerts".to_owned(),
+            finding: Some("vuln.robot"),
+        };
+        let findings = vulnerability_findings(&[item]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id, "vuln.robot");
+        assert_eq!(findings[0].severity, Severity::High);
+    }
 
     /// Ticketbleed findings keep their severity and possible-exposure detail.
     #[test]

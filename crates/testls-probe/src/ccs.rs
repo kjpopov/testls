@@ -60,7 +60,9 @@ pub async fn probe_ccs(
 }
 
 /// Reads a bounded TLS record without consuming bytes from the next record.
-async fn read_record(stream: &mut TcpStream) -> Result<(u8, ProtocolVersion, Vec<u8>), ProbeError> {
+pub(crate) async fn read_record(
+    stream: &mut TcpStream,
+) -> Result<(u8, ProtocolVersion, Vec<u8>), ProbeError> {
     let mut header = [0; 5];
     stream
         .read_exact(&mut header)
