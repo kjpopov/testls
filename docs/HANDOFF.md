@@ -106,12 +106,12 @@ if `gh` is allowed); update it when a session ends.
   `testls-probe/src/ccs.rs`. A fatal `bad_record_mac` following the probe
   indicates early cipher activation; other replies remain not tested. The
   OpenSSL 1.0.1g and 1.0.1h fixtures exercise affected and patched versions.
-- Ticketbleed merged in PR #158. ROBOT is implemented on the current branch
+- Ticketbleed merged in PR #158. ROBOT merged in PR #159 (2026-11-10),
   in `testls-probe/src/robot.rs` and `testls-scan/src/sections.rs` (decision
   #101); it is opt-in and reports only reproducible alert differences. Equal
   alerts, failed comparisons and timing oracles remain untested. It uses
   `num-bigint`, already present transitively in the lockfile.
-- v0.6.1 remains open until ROBOT is merged.
+- All four v0.6.1 intrusive checks are merged; the release is not cut yet.
 - PR #159 review fixes (2026-11-10): the missing-separator vector now
   excludes zero bytes from the premaster tail; the regression failed before
   the fix. Added malformed-flight, noncomparable-alert, invalid-key/input
@@ -131,15 +131,52 @@ if `gh` is allowed); update it when a session ends.
   Sequential CCS retries pass. Fresh CI at `490fa3e` passes all 26 checks,
   including all 16 container tests. Codecov patch coverage is 99.82% (one
   uncovered defensive modulus guard), project coverage 97.88%. The original
-  local SMTP test remains pending; CI's SMTP test passed.
+  local SMTP test eventually passed; CI's SMTP test passed.
   All five inline review threads are resolved; the outside-diff #102 fix
   was reported. CodeRabbit accepted the fixes; its follow-up low-value note
   is addressed in #101: attempt errors stop the suite's probe without
   retries per #89, accepting inconclusive results on transient failures.
-  Human security review remains required; no merge authorized. Existing
-  `handoff-local` stash is untouched.
+  The maintainer subsequently merged PR #159 at `2f61b5c`; the agent did not
+  merge it. Existing `handoff-local` stash is untouched.
 
 ## Next work
+
+- Local fixture cross-check (2026-11-10, branch `docs/local-fixture-audit`
+  from merged PR #159 at `2f61b5c`): maintainer authorized local scans with
+  both tools, GitHub issues for confirmed gaps and linked roadmap items.
+  Initial sequential CLI-only comparisons finished for all 13 existing
+  endpoints (five direct TLS, eight STARTTLS). Protocol/suite sets agree on
+  twelve completed comparisons; FTP's comparator preflight failed although
+  testls and independent OpenSSL accept AUTH TLS. The other four endpoints
+  stalled with both tools even after authorized restarts of only
+  `servers-heartbleed-1`, `servers-heartbleed-patched-1`,
+  `servers-ccs-patched-1`, `servers-smtp-1`. Internal Heartbleed TLS works;
+  an owned loopback SSH tunnel to the same containers also stalled and was
+  closed. Fixture logs and an independent lookup implicate reverse DNS.
+  Maintainer authorized temporary local peer-name entries in only those four
+  containers. All four comparisons completed with the workaround, with
+  expected Heartbleed/CCS findings; all original hosts files are restored and
+  verified byte-for-byte. Bridge lookup again stalled after restoration;
+  filed fixture reliability issue #163. No global DNS/network/SSH changes.
+  No new wolfSSL fixture is built yet.
+  Isolated testssl.sh v3.2.5 is pinned to
+  `4f17be931a9d60f3f987975aea8221f1a8eaf7aa`; its source and data are not read
+  or copied into this repository. Runner and raw results are outside the
+  repository under the approved OpenCode temporary directory,
+  `testls-fixture-audit-20261110/`. Both scanners use localhost SNI and the
+  fixture CA; testssl.sh DNS and both external revocation fetches are off.
+  Client simulation and grade comparison are excluded. Existing debug CLI
+  SHA-256: `4dbd242409545e198527e1b3593a5e84ead400d34a6319ca7ba5dc357bdfd2eb`.
+  Confirmed independently and filed: ROBOT optional client CertificateRequest
+  handling on MariaDB (#160); absent real positive/patched ROBOT fixture pair
+  (#161, candidate wolfSSL releases still unverified); DH suite sampling hides
+  a 1024-bit accepted group on the legacy fixture (#162); peer reverse-DNS
+  stalls in historical TLS/SMTP fixtures (#163). All are linked in
+  PLAN; durable own-wording report: `docs/local-fixture-audit.md`. Keep
+  `handoff-local` stash and other pre-existing containers untouched. No scanner
+  implementation or image changes. FTP native-mode retry also failed at
+  preflight; no external vulnerability/cipher parity claimed there. No scans
+  remain running; owned SSH tunnels are closed and temporary hosts restored.
 
 Next free decision: #102 (#99 CCS, #100 Ticketbleed in PR #158, #101 ROBOT). Recheck
 fresh `main` before assigning a number.
@@ -153,8 +190,8 @@ fresh `main` before assigning a number.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-3. v0.6.1: Heartbleed, CCS injection and Ticketbleed are merged; ROBOT is
-   implemented on this branch and awaits review and merge. Later backlog:
+3. v0.6.1: Heartbleed, CCS injection, Ticketbleed and ROBOT are merged; prepare
+   the release when the maintainer chooses. Later backlog:
    `--delay`, `--parallel`.
 
 ## Habits that worked
