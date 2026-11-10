@@ -75,8 +75,9 @@ if `gh` is allowed); update it when a session ends.
 
 ## Intrusive checks implementation in progress
 
-- First PR of the maintainer-selected series is merged (PR #154,
-  2026-11-10): opt-in Heartbleed only, `testls-probe/src/heartbleed.rs`,
+- v0.6.1 milestone (PLAN decision #98), one PR per check: first PR of
+  the maintainer-selected series is merged (PR #154, 2026-11-10): opt-in
+  Heartbleed only, `testls-probe/src/heartbleed.rs`,
   `Options::intrusive`, CLI `--intrusive`, OpenSSL 1.0.1f test server on
   port 14435. No profile or server API implicitly enables it. Correlated
   pre-handshake disclosure is critical; rejection and silence remain not
@@ -106,9 +107,10 @@ if `gh` is allowed); update it when a session ends.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-   Next decision number: **#98**.
-3. Backlog: intrusive checks (`--intrusive`: Heartbleed done in #154;
-   CCS injection, Ticketbleed, ROBOT next), `--delay`, `--parallel`.
+   Next decision number: **#99**.
+3. v0.6.1 (PLAN decision #98): intrusive checks, one PR each behind
+   `--intrusive` — Heartbleed done in #154; next CCS injection,
+   Ticketbleed, ROBOT. Then backlog: `--delay`, `--parallel`.
 
 ## Habits that worked
 
