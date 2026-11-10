@@ -232,6 +232,20 @@ None at the moment (default profile and politeness settled in #88, #89).
 <!-- coderabbit-ai-generated:v1 -->
 <!-- coderabbit-ai-generated-section:v1:f674fedf3a1e0a02fd8ed7e55af031a1cb98e697a670085d66112a581080a8ee -->
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:f18673cca74a36119a11a7e58376642c6698ae9432a7e9d95dd462dea60735c6 -->
+
+<!-- Provenance for the decision log follows. -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:bbfd7e9fbb876dbde2ba17fb3a8d559db96bfb2478e0a5fdf5382227b9888138 -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:82872460fc9307187f0c0101cee20942f7809ff11c4fa3b24d222a38aec4b677 -->
+
 | # | Decision | Rationale |
 | --- | --- | --- |
 | 1 | v0.1 = core scanner CLI only | Engine is the hard, valuable part |
@@ -331,18 +345,10 @@ None at the moment (default profile and politeness settled in #88, #89).
 | 95 | Server safety: without a token only requests whose `Host` names loopback are served (blocks DNS rebinding); binding a non-loopback address generates a random 256-bit token unless `--token-file` gives one, compared in constant time. Targets are resolved once and the address checked against the special-purpose ranges (`public_address`, also used for revocation fetches) unless `--allow-private`. `serve` refuses a non-loopback listener without a token. Limits: concurrent scans (try-acquire, 429) and scans per minute, both checked before the DNS lookup; open progress streams; history size (oldest finished first); per-scan timeout; 16 KiB request bodies; policies deduplicated; SNI must be a host name (probes put it in plaintext `Host` headers). Every response sends `CSP default-src 'none'; frame-ancestors 'none'`, `nosniff`, `no-referrer`, `no-store`; the HTML report allows inline styles only | A scanner reachable from a browser is an SSRF and DoS tool for any web page; loopback-by-default plus Host checking covers local use, the token covers shared use, and resolving once means the checked address is the scanned one |
 | 96 | Embedded UI: `index.html`, `app.js`, `app.css` in `crates/testls-server/ui/`, compiled in with `include_str!` and served at `/`, `/ui/app.js`, `/ui/app.css` under `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`. The files skip the token check (they hold no data; a browser cannot send a bearer token when opening a page) but not the loopback Host check. The page asks for the token and keeps it in `sessionStorage`; SSE is read through `fetch` because `EventSource` cannot send headers; exports are fetched as blobs. DOM is built with `createElement`/`textContent` only; a unit test rejects `innerHTML`-style sinks and inline code. Explanations come from new `GET /explanations/{id}`. The UI renders the structured JSON report, the section text only as progress and raw output | No build step or JS dependencies to audit; a strict CSP plus no markup parsing means hostile certificate or header text cannot run script |
 | 97 | Intrusive checks ship as a series, starting with explicit `--intrusive` Heartbleed detection at measured TLS 1.0–1.2 versions. Only correlated pre-handshake disclosure confirms vulnerability; errors and refusals remain not tested. No profile enables it and the server API does not expose it. CCS injection, Ticketbleed and ROBOT remain pending | Maintainer selected staged PRs and confirmed evidence; keep attack traffic opt-in and avoid false assurance |
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:bbfd7e9fbb876dbde2ba17fb3a8d559db96bfb2478e0a5fdf5382227b9888138 -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:82872460fc9307187f0c0101cee20942f7809ff11c4fa3b24d222a38aec4b677 -->
-
-| # | Decision | Rationale |
-| --- | --- | --- |
 | 98 | Intrusive checks are scheduled as milestone v0.6.1, one PR per check behind `--intrusive`: Heartbleed (shipped in PR #154, #97), then CCS injection, Ticketbleed and ROBOT | Amends #34 and #90; staging one vulnerability per PR keeps the review, the test server and the fixtures small while attack traffic stays opt-in |
 | 99 | CCS injection probe sends premature CCS and bogus ciphertext for measured TLS 1.0–1.2 only when `--intrusive` is set; a fatal bad_record_mac indicates early cipher activation, other outcomes remain not tested | Keep the attack opt-in and avoid treating rejection or silence as proof of safety |
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 -->
 

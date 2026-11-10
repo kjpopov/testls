@@ -109,6 +109,20 @@ if `gh` is allowed); update it when a session ends.
 
 <!-- /coderabbit-ai-generated:v1 -->
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:09f6f4ea6a11bdec9f1b9b902776fc5182b196338d4138260d90d7be2ffab861 -->
+
+<!-- Provenance for the updated list follows. -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:f3f9b9ab0cf59d79194801b4dea06956ebb2ff02ddff1a4238ca385847379618 -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:7a60e3c2b5677e1e5f39b75f3928190dbf33fd3b18dba6275e45fc737ad235a5 -->
+
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
    packages PR #151 merged. New crates need a manual first publish plus a
    trusted-publishing entry by the maintainer before `release.yml` can
@@ -118,20 +132,14 @@ if `gh` is allowed); update it when a session ends.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:f3f9b9ab0cf59d79194801b4dea06956ebb2ff02ddff1a4238ca385847379618 -->
-
    Next decision number: **#100**.
-
-<!-- /coderabbit-ai-generated:v1 -->
 3. v0.6.1 (PLAN decision #98): intrusive checks, one PR each behind
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:7a60e3c2b5677e1e5f39b75f3928190dbf33fd3b18dba6275e45fc737ad235a5 -->
-
    `--intrusive` — Heartbleed done in #154; CCS injection implemented;
    next Ticketbleed and ROBOT. Then backlog: `--delay`, `--parallel`.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 -->
 

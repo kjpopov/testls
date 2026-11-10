@@ -202,4 +202,87 @@ mod tests {
         );
         peer.await.unwrap();
     }
+
+    /// Runs the probe against a peer that returns a scripted server flight.
+    async fn scripted_flight(flight_bytes: Vec<u8>) -> Result<(), ProbeError> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut transport = Transport::new(listener.local_addr().unwrap());
+        transport.read_timeout = Duration::from_secs(3);
+        let peer = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            read_record(&mut stream).await.unwrap();
+            stream.write_all(&flight_bytes).await.unwrap();
+        });
+        let result = probe_ccs(&transport, ProtocolVersion::TLS12, &[0x2f], None).await;
+        peer.await.unwrap();
+        result
+    }
+
+    /// Oversized record and handshake flights are rejected before unbounded reads.
+    #[tokio::test]
+    async fn flight_bounds() {
+        let length = u16::try_from(MAX_RECORD + 1).unwrap().to_be_bytes();
+        let result = scripted_flight(vec![22, 3, 3, length[0], length[1]]).await;
+        assert!(matches!(
+            result,
+            Err(ProbeError::Unexpected("record exceeds probe limit"))
+        ));
+
+        let mut body = vec![0; 1 << 14];
+        body[..4].copy_from_slice(&[11, 255, 255, 255]);
+        let frame = record(22, &body);
+        let result = scripted_flight(frame.repeat(16)).await;
+        assert!(matches!(
+            result,
+            Err(ProbeError::Unexpected("invalid or oversized server flight"))
+        ));
+    }
+
+    /// A server cannot select an unoffered version, cipher or compression.
+    #[tokio::test]
+    async fn invalid_server_hello() {
+        for (version, suite, compression) in [
+            (0x0302_u16, 0x2f_u16, 0_u8),
+            (0x0303, 0x35, 0),
+            (0x0303, 0x2f, 1),
+        ] {
+            let mut hello = vec![2, 0, 0, 38];
+            hello.extend_from_slice(&version.to_be_bytes());
+            hello.extend_from_slice(&[1; 32]);
+            hello.push(0);
+            hello.extend_from_slice(&suite.to_be_bytes());
+            hello.push(compression);
+            hello.extend_from_slice(&[14, 0, 0, 0]);
+            let result = scripted_flight(record(22, &hello)).await;
+            assert!(matches!(
+                result,
+                Err(ProbeError::Unexpected(
+                    "server chose an unexpected version or cipher"
+                ))
+            ));
+        }
+    }
+
+    /// Unsupported versions and empty suite lists do not open a connection.
+    #[tokio::test]
+    async fn invalid_inputs_do_not_connect() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let transport = Transport::new(listener.local_addr().unwrap());
+        for (version, suites) in [
+            (ProtocolVersion::TLS13, &[0x1301][..]),
+            (ProtocolVersion::TLS12, &[][..]),
+        ] {
+            assert!(matches!(
+                probe_ccs(&transport, version, suites, None).await,
+                Err(ProbeError::Unexpected(
+                    "no applicable TLS version or cipher suite"
+                ))
+            ));
+        }
+        assert!(
+            timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err()
+        );
+    }
 }
