@@ -4,13 +4,20 @@ State left by the last agent session for the next one. Read this right
 after [AGENTS.md](../AGENTS.md) (then [agent-workflow.md](agent-workflow.md)
 if `gh` is allowed); update it when a session ends.
 
-## State (2026-11-08)
+## State (2026-11-10)
 
 - Latest release **v0.6.0** (web service: `testls serve`, REST/SSE,
   browser UI). Previous v0.5.0 (release PR `chore/release-0.5.0`; tag,
   GitHub release, container image `ghcr.io/kjpopov/testls:0.5.0`,
   Homebrew/Scoop in-repo via the packages PR). v0.4.2 was deleted (web UI
   mistake); skip it in compare links.
+- Merged 2026-11-10: PR #154 opt-in Heartbleed (`--intrusive`, decision
+  #97, test server port 14435) and PR #155 (dependabot actions).
+  Housekeeping: deleted local `pr-117`, `feat/web-ui`, `fix/server-review`
+  and the six stale remote branches (`feat/cidr-targets`,
+  `feat/report-http-headers`, `feat/intrusive-checks`, `feat/web-ui`,
+  `fix/server-review`, CodeRabbit's `review-latest-pull-request`
+  by-product of closed PR #153); only `origin/main` remains.
 - v0.5.0 contains `--starttls smtp|imap|pop3|ftp|xmpp|ldap|postgres|mysql`
   (decisions #68–#75), `--mx` (#76–#77, `testls-probe/src/mx.rs`,
   `mail_hosts` in `main.rs`), PR #117 security hardening (#78–#81),
@@ -32,7 +39,7 @@ if `gh` is allowed); update it when a session ends.
   `vulnerability_section`). Verdicts in `testls-checks/src/vulnerabilities.rs`
   (15 entries).
 - PR #117 (external audit by r4d1um) is closed by the maintainer; all
-  findings shipped in v0.5.0. Local branch `pr-117` can be deleted.
+  findings shipped in v0.5.0.
 - Hardening code map: escaping via `printable()` in
   `testls-report/src/text.rs` and `csv::field`; baseline severity in
   `testls/src/baseline.rs` (`scan_failure`); handshake signature in
@@ -68,10 +75,13 @@ if `gh` is allowed); update it when a session ends.
 
 ## Intrusive checks implementation in progress
 
-- First PR in the maintainer-selected series: opt-in Heartbleed only,
-  `testls-probe/src/heartbleed.rs`, `Options::intrusive`, CLI `--intrusive`.
-  No profile or server API implicitly enables it. Correlated pre-handshake
-  disclosure is critical; rejection and silence remain not tested.
+- v0.6.1 milestone (PLAN decision #98), one PR per check: first PR of
+  the maintainer-selected series is merged (PR #154, 2026-11-10): opt-in
+  Heartbleed only, `testls-probe/src/heartbleed.rs`,
+  `Options::intrusive`, CLI `--intrusive`, OpenSSL 1.0.1f test server on
+  port 14435. No profile or server API implicitly enables it. Correlated
+  pre-handshake disclosure is critical; rejection and silence remain not
+  tested.
 <!-- coderabbit-ai-generated:v1 -->
 
 <!-- coderabbit-ai-generated-section:v1:d82e77156a5694fb7efdb4f8cd5ec7ce600a8ddf9f610cd347d337748c7bb03a -->
@@ -82,7 +92,8 @@ if `gh` is allowed); update it when a session ends.
 - CCS injection, Ticketbleed and ROBOT still require later implementations.
 
 <!-- /coderabbit-ai-generated:v1 -->
-  Do not mark the complete intrusive-check backlog entry done.
+  Do not mark the v0.6.1 milestone done until CCS injection, Ticketbleed
+  and ROBOT are each merged.
 
 ## Next work
 
@@ -97,10 +108,10 @@ if `gh` is allowed); update it when a session ends.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-   Next decision number: **#98**.
-3. Backlog: intrusive checks (`--intrusive`: Heartbleed, CCS injection,
-   Ticketbleed, ROBOT; a remote branch `feat/intrusive-checks` exists, not
-   ours, check with the maintainer), `--delay`, `--parallel`.
+   Next decision number: **#99**.
+3. v0.6.1 (PLAN decision #98): intrusive checks, one PR each behind
+   `--intrusive` — Heartbleed done in #154; next CCS injection,
+   Ticketbleed, ROBOT. Then backlog: `--delay`, `--parallel`.
 
 ## Habits that worked
 
