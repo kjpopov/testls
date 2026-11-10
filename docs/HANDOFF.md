@@ -62,7 +62,31 @@ if `gh` is allowed); update it when a session ends.
   with the moderators). Keep generating `packaging/winget/X.Y.Z/` in the
   packages PR, but do not remind the maintainer each release.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:8ee8a4a669a565448ad298fbcf9e32f47584f4552e222e14cd85291c854158e7 -->
+
+## Intrusive checks implementation in progress
+
+- First PR in the maintainer-selected series: opt-in Heartbleed only,
+  `testls-probe/src/heartbleed.rs`, `Options::intrusive`, CLI `--intrusive`.
+  No profile or server API implicitly enables it. Correlated pre-handshake
+  disclosure is critical; rejection and silence remain not tested.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:d82e77156a5694fb7efdb4f8cd5ec7ce600a8ddf9f610cd347d337748c7bb03a -->
+
+- PR #154 CI repair: terminate the pre-handshake exchange after the bounded
+  heartbeat to flush OpenSSL 1.0.1 buffered replies; scripted peers verify
+  the termination record and heartbeat followed by a fatal alert.
+- CCS injection, Ticketbleed and ROBOT still require later implementations.
+
+<!-- /coderabbit-ai-generated:v1 -->
+  Do not mark the complete intrusive-check backlog entry done.
+
 ## Next work
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
    packages PR #151 merged. New crates need a manual first publish plus a
@@ -73,7 +97,7 @@ if `gh` is allowed); update it when a session ends.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-   Next decision number: **#97**.
+   Next decision number: **#98**.
 3. Backlog: intrusive checks (`--intrusive`: Heartbleed, CCS injection,
    Ticketbleed, ROBOT; a remote branch `feat/intrusive-checks` exists, not
    ours, check with the maintainer), `--delay`, `--parallel`.

@@ -784,3 +784,24 @@ fn stop_server(mut child: std::process::Child, _stderr: impl Read) {
     child.kill().expect("stop testls serve");
     child.wait().expect("reap testls serve");
 }
+
+/// OpenSSL 1.0.1f discloses memory only when attack traffic is enabled.
+#[test]
+#[ignore = "needs tests/servers running"]
+fn heartbleed_server() {
+    let ordinary = scan("127.0.0.1:14435", &["--profile", "quick"]);
+    assert!(!ordinary.has("Heartbleed"));
+    let attack = scan("127.0.0.1:14435", &["--profile", "quick", "--intrusive"]);
+    assert!(attack.has("[vuln.heartbleed]"), "{}", attack.stdout);
+    assert_eq!(attack.code, 1);
+}
+
+/// OpenSSL 1.0.1g drops the malformed request; silence is not a safe verdict.
+#[test]
+#[ignore = "needs tests/servers running"]
+fn heartbleed_patched_server() {
+    let scan = scan("127.0.0.1:14436", &["--profile", "quick", "--intrusive"]);
+    assert!(scan.has("Heartbleed"), "{}", scan.stdout);
+    assert!(!scan.has("[vuln.heartbleed]"), "{}", scan.stdout);
+    assert!(scan.line("Heartbleed").contains("not tested"));
+}

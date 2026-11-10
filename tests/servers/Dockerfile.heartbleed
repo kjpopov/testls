@@ -1,0 +1,18 @@
+# Historical TLS implementations for opt-in scanner integration tests only.
+FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS build
+ARG OPENSSL_RELEASE=OpenSSL_1_0_1f
+ARG OPENSSL_SHA256=3be4a1bbda8215d135b4403d84a06cafa2bcb88555e19d4db0930e187375bf9b
+ADD --checksum=sha256:${OPENSSL_SHA256} https://codeload.github.com/openssl/openssl/tar.gz/refs/tags/${OPENSSL_RELEASE} /tmp/source.tar.gz
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential perl \
+ && mkdir /tmp/source \
+ && tar xzf /tmp/source.tar.gz --strip-components=1 -C /tmp/source \
+ && cd /tmp/source \
+ && ./config no-shared no-asm --prefix=/opt/fixture \
+ && make -j1 \
+ && make install_sw
+FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+COPY --from=build /opt/fixture/bin/openssl /usr/local/bin/openssl
+COPY --chown=nobody:nogroup --chmod=0400 server.pem server.key /
+USER nobody
+ENTRYPOINT ["openssl", "s_server", "-www", "-cert", "/server.pem", "-key", "/server.key", "-accept", "4433", "-tls1_2", "-cipher", "AES128-SHA"]
