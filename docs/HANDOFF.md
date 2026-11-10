@@ -106,16 +106,18 @@ if `gh` is allowed); update it when a session ends.
   `testls-probe/src/ccs.rs`. A fatal `bad_record_mac` following the probe
   indicates early cipher activation; other replies remain not tested. The
   OpenSSL 1.0.1g and 1.0.1h fixtures exercise affected and patched versions.
-- This branch (PR #158) implements the opt-in Ticketbleed probe in
-  `testls-probe/src/ticketbleed.rs`: a complete TLS 1.2 handshake for a
-  session ticket, then resumption with a 31-byte session ID; an ID extended
-  by one byte in the abbreviated flight flags possible memory exposure
-  (High, per NVD); an unchanged echo reports not vulnerable; skipped when
-  TLS 1.2 is not offered. Review round 1 addressed. Reuses the OpenSSL 1.0.1f heartbleed fixture on port 14435. Ticketbleed and
-  ROBOT remain open on the milestone.
+<!-- coderabbit-ai-generated:v1 -->
 
-Do not mark the v0.6.1 milestone done until Ticketbleed (#158) and ROBOT
-are each merged.
+<!-- coderabbit-ai-generated-section:v1:c6b2a12dca3fb8e83cd03fef40e1c6063cd2d43cb80f1b49d3926c97e57d7c9b -->
+
+- Ticketbleed merged in PR #158. ROBOT is implemented on the current branch
+  in `testls-probe/src/robot.rs` and `testls-scan/src/sections.rs` (decision
+  #101); it is opt-in and reports only reproducible alert differences. Equal
+  alerts, failed comparisons and timing oracles remain untested. It uses
+  `num-bigint`, already present transitively in the lockfile.
+- v0.6.1 remains open until ROBOT is merged.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Next work
 
@@ -131,10 +133,15 @@ fresh `main` before assigning a number.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-3. v0.6.1 (PLAN decision #98): intrusive checks, one PR each behind
-   `--intrusive` — Heartbleed done in #154, CCS injection in #157;
-   Ticketbleed in review (#158); next ROBOT. Then backlog: `--delay`,
-   `--parallel`.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:3112ecc5f73696db9f02d6e597a8842af342159469268e9093b9fc649dd4bf0f -->
+
+3. v0.6.1: Heartbleed, CCS injection and Ticketbleed are merged; ROBOT is
+   implemented on this branch and awaits review and merge. Later backlog:
+   `--delay`, `--parallel`.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Habits that worked
 

@@ -4,9 +4,18 @@ All notable changes to `testls` are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:2b27e60c761433eda58a38b5307c7e10062268827ac264a42f021a6e685eb387 -->
+
 ## [Unreleased]
 
 ### Added
+
+- Opt-in ROBOT probe compares RSA padding responses and reports a high
+  finding for a repeated alert difference; inconclusive results remain untested.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 - Explicit `--intrusive` pre-handshake Heartbleed and CCS injection probes
   for measured TLS 1.0–1.2 versions. Correlated Heartbleed disclosure creates

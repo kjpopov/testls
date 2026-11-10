@@ -792,9 +792,11 @@ fn heartbleed_server() {
     let ordinary = scan("127.0.0.1:14435", &["--profile", "quick"]);
     assert!(!ordinary.has("Heartbleed"));
     assert!(!ordinary.has("Ticketbleed"));
+    assert!(!ordinary.has("ROBOT"));
     let attack = scan("127.0.0.1:14435", &["--profile", "quick", "--intrusive"]);
     assert!(attack.has("[vuln.heartbleed]"), "{}", attack.stdout);
     assert!(attack.has("Ticketbleed"), "{}", attack.stdout);
+    assert!(attack.has("ROBOT"), "{}", attack.stdout);
     assert_eq!(attack.code, 1);
 }
 

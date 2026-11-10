@@ -545,6 +545,12 @@ const EXPLANATIONS: &[Explanation] = &[
         "RFC 7301 §3.2, alpaca-attack.com",
     ),
     entry(
+        "vuln.robot",
+        "ROBOT: RSA padding oracle",
+        "The server gives different fatal alerts for correctly and incorrectly padded RSA key exchanges. An attacker may exploit a padding oracle to decrypt or sign data using the RSA key. Disable static RSA key exchange and update the TLS implementation.",
+        "RFC 5246 §7.4.7.1; robotattack.org",
+    ),
+    entry(
         "vuln.ticketbleed",
         "Ticketbleed: possible memory exposure on ticket resumption",
         "The server extended a short session ID during ticket resumption. This can disclose uninitialized memory, although other implementations may exhibit a similar error without exposing memory. Check the server implementation and disable session tickets or apply its security updates.",

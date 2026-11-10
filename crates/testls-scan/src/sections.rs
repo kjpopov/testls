@@ -188,6 +188,7 @@ pub(crate) async fn later_sections(
         vulns.push(heartbleed_section(transport, ciphers, sni).await);
         vulns.push(ccs_section(transport, ciphers, sni).await);
         vulns.push(ticketbleed_section(transport, protocols, sni).await);
+        vulns.push(robot_section(transport, ciphers, sni).await);
     }
     on_event(Event::Vulnerabilities(&vulns));
     findings.extend(vulnerability_findings(&vulns));
@@ -567,6 +568,47 @@ fn ticketbleed_item(result: Result<TicketbleedVerdict, testls_probe::ProbeError>
     }
 }
 
+/// Compares RSA padding responses for measured static RSA suites.
+async fn robot_section(
+    transport: &Transport,
+    ciphers: &[CipherSection],
+    sni: Option<&str>,
+) -> Vulnerability {
+    let mut detail = Vec::new();
+    for (version, suites) in intrusive_suites(ciphers) {
+        // One static RSA suite per protocol bounds attack traffic.
+        if let Some(suite) = suites.into_iter().find(|id| {
+            testls_data::cipher_suite(*id).is_some_and(|c| c.name.starts_with("TLS_RSA_WITH_"))
+        }) {
+            match testls_probe::probe_robot(transport, version, suite, sni).await {
+                Ok(()) => {
+                    return Vulnerability {
+                        id: "robot",
+                        name: "ROBOT",
+                        status: testls_checks::VulnStatus::Vulnerable,
+                        detail: format!(
+                            "{version}: repeated RSA padding-dependent fatal alerts for suite {suite:#06x}"
+                        ),
+                        finding: Some("vuln.robot"),
+                    };
+                }
+                Err(e) => detail.push(format!("{version} {suite:#06x}: {e}")),
+            }
+        }
+    }
+    Vulnerability {
+        id: "robot",
+        name: "ROBOT",
+        status: testls_checks::VulnStatus::NotTested,
+        detail: if detail.is_empty() {
+            "no measured static RSA TLS 1.0–1.2 suite".to_owned()
+        } else {
+            detail.join("; ")
+        },
+        finding: None,
+    }
+}
+
 /// Tests measured TLS 1.0–1.2 versions for premature cipher activation.
 async fn ccs_section(
     transport: &Transport,
@@ -610,6 +652,25 @@ mod tests {
     use std::net::SocketAddr;
 
     use super::*;
+
+    /// Missing RSA suites and refused connections are inconclusive.
+    #[tokio::test]
+    async fn robot_without_rsa_or_connection() {
+        let transport = Transport::new(SocketAddr::from(([127, 0, 0, 1], 9)));
+        let make = |suites| CipherSection {
+            version: ProtocolVersion::TLS12,
+            outcome: Ok(CipherResult {
+                version: ProtocolVersion::TLS12,
+                suites,
+                order: testls_probe::CipherOrder::NotApplicable,
+            }),
+        };
+        for suites in [vec![0xc02f], vec![0x2f]] {
+            let item = robot_section(&transport, &[make(suites)], None).await;
+            assert_eq!(item.status, testls_checks::VulnStatus::NotTested);
+            assert!(item.finding.is_none());
+        }
+    }
 
     /// Intrusive probes keep successful legacy measurements in original order.
     #[test]

@@ -166,7 +166,13 @@ All behind the opt-in `--intrusive` flag (decision #97), one PR per check.
 - [x] Heartbleed (PR #154)
 - [x] CCS injection (PR #157)
 - [x] Ticketbleed (PR #158)
-- [ ] ROBOT
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:572f066165de8f665bd08c3ab73b23ab6206d108173caeed6987ddd28a75b250 -->
+
+- [x] ROBOT (`--intrusive`; decision #101)
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ### v0.7 — Monitoring (sketch)
 - Target groups with owners, expiry dashboard, scheduled rescans with diff
@@ -203,15 +209,32 @@ Not scheduled; pulled into a milestone when someone picks it up.
 - Docs: catalogue of checks, mapping from testssl.sh options, threat model
 - Politeness: `--delay` between connections to one target
 - Bounded parallel probes per target (`--parallel`, #8 as planned, see #89)
-- Intrusive checks behind `--intrusive`: see the v0.6.1 milestone
-  (Heartbleed, CCS injection and Ticketbleed implemented; ROBOT pending;
-  moved from v0.5, #90)
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:c7a228b4400d2fec780c87210e68e60e008e5984a284d35136077fbfd55c5da5 -->
+
+- Intrusive checks are tracked in v0.6.1 (moved from v0.5, #90).
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Open questions
 
 None at the moment (default profile and politeness settled in #88, #89).
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:6b02c89b6bc505931782d47d27a5c53f7582fe603e0a9100f73073ffc7f36591 -->
+
 ## Decision log
+
+**101 — ROBOT:** With `--intrusive`, compare a valid RSA key exchange block
+against three malformed PKCS#1 v1.5 blocks twice at one measured static RSA
+suite per TLS 1.0–1.2 version. Require the same certificate, version and suite
+and a repeated fatal alert difference against a `bad_record_mac` control for a
+high finding. Other results remain not tested. This bounds traffic and avoids
+claiming that untested padding or timing oracles are absent.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 
 | # | Decision | Rationale |
