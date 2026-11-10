@@ -92,7 +92,8 @@ if `gh` is allowed); update it when a session ends.
 - CCS injection, Ticketbleed and ROBOT still require later implementations.
 
 <!-- /coderabbit-ai-generated:v1 -->
-  Do not mark the complete intrusive-check backlog entry done.
+  Do not mark the v0.6.1 milestone done until CCS injection, Ticketbleed
+  and ROBOT are each merged.
 
 ## Next work
 

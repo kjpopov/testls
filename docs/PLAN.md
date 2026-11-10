@@ -203,8 +203,9 @@ Not scheduled; pulled into a milestone when someone picks it up.
 - Docs: catalogue of checks, mapping from testssl.sh options, threat model
 - Politeness: `--delay` between connections to one target
 - Bounded parallel probes per target (`--parallel`, #8 as planned, see #89)
-- Intrusive checks behind `--intrusive`: CCS injection, Ticketbleed, ROBOT
-  (Heartbleed shipped in v0.6.1, PR #154; the rest moved from v0.5, #90)
+- Intrusive checks behind `--intrusive`: see the v0.6.1 milestone
+  (Heartbleed merged in PR #154; CCS injection, Ticketbleed and ROBOT
+  pending; moved from v0.5, #90)
 
 ## Open questions
 
