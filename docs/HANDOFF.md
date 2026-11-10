@@ -128,7 +128,14 @@ if `gh` is allowed); update it when a session ends.
   The strengthened Heartbleed integration and isolated patched-Heartbleed
   test pass. Initial parallel CCS tests hit a blocked shared fixture;
   maintainer authorized restarting only `servers-heartbleed-patched-1`.
-  Sequential CCS retries and the original SMTP test remain pending.
+  Sequential CCS retries pass. Fresh CI at `490fa3e` passes all 26 checks,
+  including all 16 container tests. Codecov patch coverage is 99.82% (one
+  uncovered defensive modulus guard), project coverage 97.88%. The original
+  local SMTP test remains pending; CI's SMTP test passed.
+  All five inline review threads are resolved; the outside-diff #102 fix
+  was reported. CodeRabbit accepted the fixes; its follow-up low-value note
+  is addressed in #101: attempt errors stop the suite's probe without
+  retries per #89, accepting inconclusive results on transient failures.
   Human security review remains required; no merge authorized. Existing
   `handoff-local` stash is untouched.
 
