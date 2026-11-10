@@ -712,12 +712,15 @@ mod tests {
         assert_eq!(item.detail, "TLS 1.2 not offered");
         assert!(item.finding.is_none());
         assert!(listener.accept().is_err(), "no connection expected");
-        // An errored TLS 1.2 measurement keeps probing (connect fails here).
+        // An errored TLS 1.2 measurement keeps probing; the silent listener
+        // makes the probe time out.
         let protocols = [ProtocolResult {
             version: ProtocolVersion::TLS12,
             support: ProtocolSupport::Error("x".to_owned()),
         }];
-        let item = ticketbleed_section(&Transport::new(addr), &protocols, None).await;
+        let mut transport = Transport::new(addr);
+        transport.read_timeout = std::time::Duration::from_millis(200);
+        let item = ticketbleed_section(&transport, &protocols, None).await;
         assert_ne!(item.detail, "TLS 1.2 not offered");
         assert!(listener.accept().is_ok(), "connection expected");
     }
