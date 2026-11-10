@@ -204,6 +204,21 @@ Not scheduled; pulled into a milestone when someone picks it up.
 - Politeness: `--delay` between connections to one target
 - Bounded parallel probes per target (`--parallel`, #8 as planned, see #89)
 - Intrusive checks are tracked in v0.6.1 (moved from v0.5, #90).
+- ROBOT interoperability: validate optional TLS client certificate requests
+  and send an empty client certificate when appropriate; retain strict
+  evidence and traffic bounds (local MariaDB reproduction,
+  [#160](https://github.com/kjpopov/testls/issues/160)).
+- ROBOT integration coverage: add verified vulnerable and patched server
+  fixtures; confirm their observable oracle matches the probe before
+  asserting a positive result ([#161](https://github.com/kjpopov/testls/issues/161)).
+- DH measurement coverage: probe accepted finite-field DH suites separately,
+  preserve weaker parameters and incomplete coverage, and avoid a negative
+  Logjam verdict based on one sampled suite (local legacy reproduction,
+  [#162](https://github.com/kjpopov/testls/issues/162)).
+- Local fixture reliability: avoid historical TLS/SMTP stalls when peer
+  reverse DNS is unavailable, without hard-coded VM addresses or global DNS
+  changes (verified Podman workaround and restoration,
+  [#163](https://github.com/kjpopov/testls/issues/163)).
 
 ## Open questions
 
