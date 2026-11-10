@@ -545,6 +545,12 @@ const EXPLANATIONS: &[Explanation] = &[
         "RFC 7301 §3.2, alpaca-attack.com",
     ),
     entry(
+        "vuln.ticketbleed",
+        "Ticketbleed: possible memory exposure on ticket resumption",
+        "The server extended a short session ID during ticket resumption. This can disclose uninitialized memory, although other implementations may exhibit a similar error without exposing memory. Check the server implementation and disable session tickets or apply its security updates.",
+        "CVE-2016-9244; RFC 5077 §3.4",
+    ),
+    entry(
         "vuln.ccs_injection",
         "CCS injection: premature cipher activation",
         "The server appears to activate its cipher before the key exchange. CVE-2014-0224 allows a man-in-the-middle to weaken connections when both client and server are affected. Upgrade the TLS implementation.",

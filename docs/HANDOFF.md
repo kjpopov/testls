@@ -61,6 +61,25 @@ if `gh` is allowed); update it when a session ends.
 - CodeRabbit runs the `assertive` profile with auto-approval up to `low`
   merge risk (PLAN #46, #55, #61).
 
+## Local OpenCode configuration (2026-11-10)
+
+- Added `lan-build` primary agent and `/lan` command to
+  `~/.config/opencode/opencode.jsonc` at the maintainer's request. Command
+  selects `lan/coder`; agent requests one-time OpenCode skill loading and
+  concise inspect/act/verify cycles. Defaults, providers and permissions
+  unchanged. JSONC parsing and configuration assertions pass; no live model
+  run performed. Existing conflict markers in repository docs left untouched.
+- Installed local TUI plugin `~/.config/opencode/llama-progress` via `cli.json`;
+  disables only `opencode.sidebar.context`, reproduces cloud context/cost and
+  shows read-only `/slots` telemetry for `local/coder` / `lan/coder`. Live
+  input counts + indeterminate bar (API lacks prompt target), generation counts;
+  server-wide, not session-correlated. Endpoints explicitly allow-listed,
+  no credentials/redirects, 1s serialized polling, 2.5s timeout, 1MiB bound.
+  Ten Node tests pass; live LAN fetch and CLI plugin reconciliation pass.
+  Separate PTY visual smoke denied by permission; layout not visually checked.
+  To uninstall remove both `-opencode.sidebar.context` and `./llama-progress`
+  from `cli.json`. No model/server settings changed.
+
 ## Waiting on the maintainer
 
 - crates.io: trusted publishing works. v0.5.0 was published by rerunning
@@ -83,20 +102,25 @@ if `gh` is allowed); update it when a session ends.
 - PR #154 CI repair: terminate the pre-handshake exchange after the bounded
   heartbeat to flush OpenSSL 1.0.1 buffered replies; scripted peers verify
   the termination record and heartbeat followed by a fatal alert.
-- PR #157 (open; initial review target `065d761`) implements an opt-in early
-  CCS probe in
+- PR #157 (merged 2026-11-10) implements an opt-in early CCS probe in
   `testls-probe/src/ccs.rs`. A fatal `bad_record_mac` following the probe
   indicates early cipher activation; other replies remain not tested. The
   OpenSSL 1.0.1g and 1.0.1h fixtures exercise affected and patched versions.
-  Ticketbleed and ROBOT remain.
+- This branch (PR #158) implements the opt-in Ticketbleed probe in
+  `testls-probe/src/ticketbleed.rs`: a complete TLS 1.2 handshake for a
+  session ticket, then resumption with a 31-byte session ID; an ID extended
+  by one byte in the abbreviated flight flags possible memory exposure
+  (High, per NVD); an unchanged echo reports not vulnerable; skipped when
+  TLS 1.2 is not offered. Review round 1 addressed. Reuses the OpenSSL 1.0.1f heartbleed fixture on port 14435. Ticketbleed and
+  ROBOT remain open on the milestone.
 
-Do not mark the v0.6.1 milestone done until CCS injection, Ticketbleed
-and ROBOT are each merged.
+Do not mark the v0.6.1 milestone done until Ticketbleed (#158) and ROBOT
+are each merged.
 
 ## Next work
 
-Next free decision: #99 on `main`; this PR (#157) takes #99, so the next
-PR after it uses #100. Recheck fresh `main` before assigning a number.
+Next free decision: #101 (#99 CCS, #100 Ticketbleed in PR #158). Recheck
+fresh `main` before assigning a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
    packages PR #151 merged. New crates need a manual first publish plus a
@@ -108,8 +132,8 @@ PR after it uses #100. Recheck fresh `main` before assigning a number.
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
 3. v0.6.1 (PLAN decision #98): intrusive checks, one PR each behind
-   `--intrusive` — Heartbleed done in #154; CCS injection pending review
-   and merge in #157; next Ticketbleed and ROBOT. Then backlog: `--delay`,
+   `--intrusive` — Heartbleed done in #154, CCS injection in #157;
+   Ticketbleed in review (#158); next ROBOT. Then backlog: `--delay`,
    `--parallel`.
 
 ## Habits that worked

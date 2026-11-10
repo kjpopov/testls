@@ -15,6 +15,7 @@ mod mx;
 mod protocols;
 mod response;
 mod starttls;
+mod ticketbleed;
 mod upgrade;
 
 use std::fmt;
@@ -42,6 +43,7 @@ pub use response::HelloResponse;
 use response::ResponseParser;
 pub use starttls::Starttls;
 use testls_wire::{DecodeError, EncodeError};
+pub use ticketbleed::{TicketbleedVerdict, probe_ticketbleed};
 pub use upgrade::{TlsUpgrade, probe_tls_upgrade};
 
 /// Error from a single probe.

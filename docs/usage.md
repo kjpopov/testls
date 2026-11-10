@@ -116,17 +116,27 @@ testls' own model, not SSL Labs', and does not affect the exit status. See
 ## Intrusive probes
 
 `testls --intrusive example.com` sends malformed Heartbleed and early CCS
-requests at measured TLS 1.0–1.2 versions, including with the `quick` profile.
-No profile enables these probes automatically; the server API does not expose them.
+requests at measured TLS 1.0–1.2 versions and probes TLS 1.2 session ticket
+resumption for Ticketbleed, including with the `quick` profile. No profile
+enables these probes automatically; the server API does not expose them.
 
 A correlated heartbeat response with an extra payload byte confirms
 `vuln.heartbleed` (critical). Disclosure is limited to one byte beyond the
 supplied payload and the byte is never reported. A fatal `bad_record_mac`
 after early CCS and bogus ciphertext indicates premature cipher activation,
 reported as `vuln.ccs_injection` (high); CVE-2014-0224 exploitation also
-requires a vulnerable client and a man in the middle. These probes do not
-complete the handshake. Rejection, silence and other responses are **not
-tested** and do not establish that a server is safe. TLS 1.3 is not tested.
+requires a vulnerable client and a man in the middle. Ticketbleed first
+completes a TLS 1.2 handshake for a session ticket, then requests resumption
+with a 31-byte session ID; an ID extended by one byte in the abbreviated
+server flight produces a high `vuln.ticketbleed` finding for **possible**
+memory exposure (CVE-2016-9244; NVD 7.5 High). An unchanged echo is reported
+as not vulnerable. TLS 1.3-only servers are not tested. Some servers extend the ID without disclosing
+memory, so check the server implementation. The Heartbleed and CCS probes do
+not complete the handshake; the ticket probe does, and its handshake supports
+the TLS 1.2 algorithms available to rustls, so older-only servers remain not
+tested. Rejection, silence, unavailable tickets and other responses are
+**not tested** and do not establish that a server is safe. TLS 1.3 is not
+tested.
 
 ## Compliance policies
 

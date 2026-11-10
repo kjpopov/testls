@@ -86,7 +86,7 @@ struct Cli {
     #[arg(long)]
     revocation: bool,
 
-    /// Send intrusive Heartbleed and CCS injection probes (attack traffic).
+    /// Send intrusive Heartbleed, CCS and Ticketbleed probes (attack traffic).
     #[arg(long)]
     intrusive: bool,
 

@@ -113,6 +113,17 @@ pub(crate) fn client_config() -> ClientConfig {
     config_with(Arc::new(AcceptAll::new()))
 }
 
+/// Client config offering only TLS 1.2 with the recording verifier.
+pub(crate) fn tls12_client_config() -> ClientConfig {
+    let verifier = Arc::new(AcceptAll::new());
+    ClientConfig::builder_with_provider(verifier.provider.clone())
+        .with_protocol_versions(&[&rustls::version::TLS12])
+        .expect("ring supports TLS 1.2")
+        .dangerous()
+        .with_custom_certificate_verifier(verifier)
+        .with_no_client_auth()
+}
+
 /// Client config offering only TLS 1.3 with the recording verifier.
 pub(crate) fn tls13_client_config() -> ClientConfig {
     let verifier = Arc::new(AcceptAll::new());
