@@ -89,7 +89,17 @@ if `gh` is allowed); update it when a session ends.
 - PR #154 CI repair: terminate the pre-handshake exchange after the bounded
   heartbeat to flush OpenSSL 1.0.1 buffered replies; scripted peers verify
   the termination record and heartbeat followed by a fatal alert.
-- CCS injection, Ticketbleed and ROBOT still require later implementations.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:a0b844454e47f510e088fb0b44cb8a5db413a906ce0cb202f31dc26e7aaeef1e -->
+
+- CCS injection is implemented as an opt-in early CCS probe in
+  `testls-probe/src/ccs.rs`. A fatal `bad_record_mac` following the probe
+  indicates early cipher activation; other replies remain not tested. The
+  OpenSSL 1.0.1g and 1.0.1h fixtures exercise affected and patched versions.
+  Ticketbleed and ROBOT remain.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 -->
   Do not mark the v0.6.1 milestone done until CCS injection, Ticketbleed
@@ -108,10 +118,22 @@ if `gh` is allowed); update it when a session ends.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-   Next decision number: **#99**.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:f3f9b9ab0cf59d79194801b4dea06956ebb2ff02ddff1a4238ca385847379618 -->
+
+   Next decision number: **#100**.
+
+<!-- /coderabbit-ai-generated:v1 -->
 3. v0.6.1 (PLAN decision #98): intrusive checks, one PR each behind
-   `--intrusive` — Heartbleed done in #154; next CCS injection,
-   Ticketbleed, ROBOT. Then backlog: `--delay`, `--parallel`.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:7a60e3c2b5677e1e5f39b75f3928190dbf33fd3b18dba6275e45fc737ad235a5 -->
+
+   `--intrusive` — Heartbleed done in #154; CCS injection implemented;
+   next Ticketbleed and ROBOT. Then backlog: `--delay`, `--parallel`.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Habits that worked
 

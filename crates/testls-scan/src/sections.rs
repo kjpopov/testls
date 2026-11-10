@@ -186,6 +186,7 @@ pub(crate) async fn later_sections(
     let mut vulns = vulnerability_section(transport, measured, sni, deep).await;
     if intrusive {
         vulns.push(heartbleed_section(transport, ciphers, sni).await);
+        vulns.push(ccs_section(transport, ciphers, sni).await);
     }
     on_event(Event::Vulnerabilities(&vulns));
     findings.extend(vulnerability_findings(&vulns));
@@ -498,6 +499,54 @@ async fn heartbleed_section(
     Vulnerability {
         id: "heartbleed",
         name: "Heartbleed",
+        status: testls_checks::VulnStatus::NotTested,
+        detail: if detail.is_empty() {
+            "no measured TLS 1.0–1.2 cipher suites".to_owned()
+        } else {
+            detail.join("; ")
+        },
+        finding: None,
+    }
+}
+
+/// Tests measured TLS 1.0–1.2 versions for premature cipher activation.
+async fn ccs_section(
+    transport: &Transport,
+    ciphers: &[CipherSection],
+    sni: Option<&str>,
+) -> Vulnerability {
+    let mut detail = Vec::new();
+    for section in ciphers {
+        if !(ProtocolVersion::TLS10..=ProtocolVersion::TLS12).contains(&section.version) {
+            continue;
+        }
+        let Ok(suites) = &section.outcome else {
+            continue;
+        };
+        let offered: Vec<u16> = suites
+            .suites
+            .iter()
+            .filter_map(|&id| u16::try_from(id).ok())
+            .collect();
+        match testls_probe::probe_ccs(transport, section.version, &offered, sni).await {
+            Ok(()) => {
+                return Vulnerability {
+                    id: "ccs_injection",
+                    name: "CCS injection",
+                    status: testls_checks::VulnStatus::Vulnerable,
+                    detail: format!(
+                        "{}: premature CCS followed by bad_record_mac indicates early cipher activation",
+                        section.version
+                    ),
+                    finding: Some("vuln.ccs_injection"),
+                };
+            }
+            Err(e) => detail.push(format!("{}: {e}", section.version)),
+        }
+    }
+    Vulnerability {
+        id: "ccs_injection",
+        name: "CCS injection",
         status: testls_checks::VulnStatus::NotTested,
         detail: if detail.is_empty() {
             "no measured TLS 1.0–1.2 cipher suites".to_owned()

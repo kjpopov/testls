@@ -45,7 +45,7 @@ pub struct Options {
     pub profile: ScanProfile,
     /// Check revocation even when the profile does not.
     pub revocation: bool,
-    /// Enable intrusive Heartbleed probes; never implied by a profile.
+    /// Enable intrusive Heartbleed and CCS probes; never implied by a profile.
     pub intrusive: bool,
     /// Let revocation lookups reach non-public addresses.
     pub revocation_allow_private: bool,

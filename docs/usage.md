@@ -202,19 +202,26 @@ do not apply.
 
 <!-- coderabbit-ai-generated-section:v1:cb26d83d4316daf391ce9f81614ea43619c04e0c1598de1a9902d633e760036c -->
 
-### Intrusive Heartbleed probe
+<!-- coderabbit-ai-generated:v1 -->
 
-`testls --intrusive example.com` explicitly sends malformed heartbeat requests
-at measured TLS 1.0–1.2 versions. This first part of the intrusive-check series
-implements Heartbleed only; CCS injection, Ticketbleed and ROBOT remain in the
-backlog. No scan profile enables it automatically. It also runs with `quick`
-when explicitly requested. The server API does not expose this switch.
+<!-- coderabbit-ai-generated-section:v1:4a6f122f85cbfd9084f2d0bc9a484e619bde06f75e48c38f282bf3867662d332 -->
 
-Only a correlated response containing an extra payload byte confirms
-`vuln.heartbleed` (critical). The request limits disclosure to one byte beyond
-what was supplied; disclosed bytes are never included in reports. This is a
-pre-handshake probe: rejection, silence, missing heartbeat negotiation and
-errors remain **not tested**, and do not establish that a server is safe.
+### Intrusive probes
+
+`testls --intrusive example.com` sends malformed Heartbleed and early CCS
+requests at measured TLS 1.0–1.2 versions, including with the `quick` profile.
+No profile enables these probes automatically; the server API does not expose them.
+
+A correlated heartbeat response with an extra payload byte confirms
+`vuln.heartbleed` (critical). Disclosure is limited to one byte beyond the
+supplied payload and the byte is never reported. A fatal `bad_record_mac`
+after early CCS and bogus ciphertext indicates premature cipher activation,
+reported as `vuln.ccs_injection` (high); CVE-2014-0224 exploitation also
+requires a vulnerable client and a man in the middle. These probes do not
+complete the handshake. Rejection, silence and other responses are **not
+tested** and do not establish that a server is safe. TLS 1.3 is not tested.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- coderabbit-ai-generated:v1 -->
 

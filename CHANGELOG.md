@@ -12,10 +12,16 @@ All notable changes to `testls` are listed here. The format follows
 
 ### Added
 
-- Explicit `--intrusive` pre-handshake Heartbleed probe for measured TLS
-  1.0–1.2 versions. Only correlated disclosure creates a critical finding;
-  refused or unanswered probes remain inconclusive. This is the first
-  part of the intrusive-check series.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:8ed5736259a857b11794802b1433b22132fe3468d20dc6cc4ebaed3fddc3b69b -->
+
+- Explicit `--intrusive` pre-handshake Heartbleed and CCS injection probes
+  for measured TLS 1.0–1.2 versions. Correlated Heartbleed disclosure creates
+  a critical finding; early CCS with a bad record MAC creates a high finding.
+  Refused or unanswered probes remain inconclusive.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 
 <!-- /coderabbit-ai-generated:v1 -->
