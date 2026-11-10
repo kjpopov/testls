@@ -186,6 +186,7 @@ pub(crate) async fn later_sections(
     let mut vulns = vulnerability_section(transport, measured, sni, deep).await;
     if intrusive {
         vulns.push(heartbleed_section(transport, ciphers, sni).await);
+        vulns.push(ccs_section(transport, ciphers, sni).await);
     }
     on_event(Event::Vulnerabilities(&vulns));
     findings.extend(vulnerability_findings(&vulns));
@@ -460,6 +461,24 @@ pub(crate) async fn details_section(
     }
 }
 
+/// Selects measured TLS 1.0–1.2 suites for intrusive probes, preserving order.
+fn intrusive_suites(
+    ciphers: &[CipherSection],
+) -> impl Iterator<Item = (ProtocolVersion, Vec<u16>)> + '_ {
+    ciphers.iter().filter_map(|section| {
+        if !(ProtocolVersion::TLS10..=ProtocolVersion::TLS12).contains(&section.version) {
+            return None;
+        }
+        let suites = section.outcome.as_ref().ok()?;
+        let offered = suites
+            .suites
+            .iter()
+            .filter_map(|&id| u16::try_from(id).ok())
+            .collect();
+        Some((section.version, offered))
+    })
+}
+
 /// Tests supported TLS 1.0–1.2 versions sequentially, confirming only disclosure.
 async fn heartbleed_section(
     transport: &Transport,
@@ -467,37 +486,61 @@ async fn heartbleed_section(
     sni: Option<&str>,
 ) -> Vulnerability {
     let mut detail = Vec::new();
-    for section in ciphers {
-        if !(ProtocolVersion::TLS10..=ProtocolVersion::TLS12).contains(&section.version) {
-            continue;
-        }
-        let Ok(suites) = &section.outcome else {
-            continue;
-        };
-        let offered: Vec<u16> = suites
-            .suites
-            .iter()
-            .filter_map(|&id| u16::try_from(id).ok())
-            .collect();
-        match testls_probe::probe_heartbleed(transport, section.version, &offered, sni).await {
+    for (version, offered) in intrusive_suites(ciphers) {
+        match testls_probe::probe_heartbleed(transport, version, &offered, sni).await {
             Ok(()) => {
                 return Vulnerability {
                     id: "heartbleed",
                     name: "Heartbleed",
                     status: testls_checks::VulnStatus::Vulnerable,
                     detail: format!(
-                        "{}: correlated heartbeat response disclosed an extra payload byte",
-                        section.version
+                        "{version}: correlated heartbeat response disclosed an extra payload byte"
                     ),
                     finding: Some("vuln.heartbleed"),
                 };
             }
-            Err(e) => detail.push(format!("{}: {e}", section.version)),
+            Err(e) => detail.push(format!("{version}: {e}")),
         }
     }
     Vulnerability {
         id: "heartbleed",
         name: "Heartbleed",
+        status: testls_checks::VulnStatus::NotTested,
+        detail: if detail.is_empty() {
+            "no measured TLS 1.0–1.2 cipher suites".to_owned()
+        } else {
+            detail.join("; ")
+        },
+        finding: None,
+    }
+}
+
+/// Tests measured TLS 1.0–1.2 versions for premature cipher activation.
+async fn ccs_section(
+    transport: &Transport,
+    ciphers: &[CipherSection],
+    sni: Option<&str>,
+) -> Vulnerability {
+    let mut detail = Vec::new();
+    for (version, offered) in intrusive_suites(ciphers) {
+        match testls_probe::probe_ccs(transport, version, &offered, sni).await {
+            Ok(()) => {
+                return Vulnerability {
+                    id: "ccs_injection",
+                    name: "CCS injection",
+                    status: testls_checks::VulnStatus::Vulnerable,
+                    detail: format!(
+                        "{version}: premature CCS followed by bad_record_mac indicates early cipher activation"
+                    ),
+                    finding: Some("vuln.ccs_injection"),
+                };
+            }
+            Err(e) => detail.push(format!("{version}: {e}")),
+        }
+    }
+    Vulnerability {
+        id: "ccs_injection",
+        name: "CCS injection",
         status: testls_checks::VulnStatus::NotTested,
         detail: if detail.is_empty() {
             "no measured TLS 1.0–1.2 cipher suites".to_owned()
@@ -515,6 +558,35 @@ mod tests {
     use std::net::SocketAddr;
 
     use super::*;
+
+    /// Intrusive probes keep successful legacy measurements in original order.
+    #[test]
+    fn intrusive_suite_selection() {
+        let section = |version, suites| CipherSection {
+            version,
+            outcome: Ok(CipherResult {
+                version,
+                suites,
+                order: testls_probe::CipherOrder::NotApplicable,
+            }),
+        };
+        let sections = [
+            section(ProtocolVersion::TLS13, vec![0x1301]),
+            section(ProtocolVersion::TLS10, vec![0x2f, 0x1_0000, 0x35]),
+            CipherSection {
+                version: ProtocolVersion::TLS11,
+                outcome: Err("failed".into()),
+            },
+            section(ProtocolVersion::TLS12, vec![]),
+        ];
+        assert_eq!(
+            intrusive_suites(&sections).collect::<Vec<_>>(),
+            vec![
+                (ProtocolVersion::TLS10, vec![0x2f, 0x35]),
+                (ProtocolVersion::TLS12, vec![]),
+            ]
+        );
+    }
 
     /// A failed cipher enumeration is reported in the key exchange section
     /// without probing the server.

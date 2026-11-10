@@ -1,5 +1,6 @@
 //! Async TLS probes over TCP built on testls-wire.
 
+mod ccs;
 mod certificates;
 mod ciphers;
 mod details;
@@ -25,6 +26,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::timeout;
 
+pub use ccs::probe_ccs;
 pub use certificates::{CertificateChain, fetch_certificates};
 pub use ciphers::{CipherOrder, CipherResult, enumerate_ciphers};
 pub use details::{HandshakeDetails, probe_details};
