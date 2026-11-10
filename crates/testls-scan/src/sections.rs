@@ -540,7 +540,19 @@ async fn ticketbleed_section(
             None,
         );
     }
-    match testls_probe::probe_ticketbleed(transport, sni).await {
+    ticketbleed_item(testls_probe::probe_ticketbleed(transport, sni).await)
+}
+
+/// Maps a Ticketbleed probe result to its report entry.
+fn ticketbleed_item(result: Result<TicketbleedVerdict, testls_probe::ProbeError>) -> Vulnerability {
+    let item = |status, detail: String, finding| Vulnerability {
+        id: "ticketbleed",
+        name: "Ticketbleed",
+        status,
+        detail,
+        finding,
+    };
+    match result {
         Ok(TicketbleedVerdict::ExtendedId) => item(
             testls_checks::VulnStatus::Vulnerable,
             "TLS 1.2 ticket resumption extended the session ID by one byte; possible memory exposure".to_owned(),
@@ -695,6 +707,20 @@ mod tests {
         let crime = list.iter().find(|v| v.id == "crime").expect("crime");
         assert_eq!(crime.status, testls_checks::VulnStatus::NotTested);
         assert_eq!(vulnerability_findings(&list), vec![]);
+    }
+
+    /// Each Ticketbleed probe result maps to the matching status and finding.
+    #[test]
+    fn ticketbleed_results_map_to_items() {
+        let item = ticketbleed_item(Ok(TicketbleedVerdict::ExtendedId));
+        assert_eq!(item.status, testls_checks::VulnStatus::Vulnerable);
+        assert_eq!(item.finding, Some("vuln.ticketbleed"));
+        let item = ticketbleed_item(Ok(TicketbleedVerdict::EchoedId));
+        assert_eq!(item.status, testls_checks::VulnStatus::NotVulnerable);
+        assert!(item.finding.is_none());
+        let item = ticketbleed_item(Err(testls_probe::ProbeError::Timeout));
+        assert_eq!(item.status, testls_checks::VulnStatus::NotTested);
+        assert!(item.finding.is_none());
     }
 
     /// Ticketbleed opens no connection when TLS 1.2 is not offered.

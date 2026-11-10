@@ -260,6 +260,132 @@ mod tests {
         message
     }
 
+    /// TLS 1.2 acceptor that issues tickets, for scripted resumption tests.
+    fn ticket_acceptor() -> TlsAcceptor {
+        let mut config =
+            ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_protocol_versions(&[&rustls::version::TLS12])
+                .unwrap()
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![CertificateDer::from(
+                        include_bytes!("testdata/localhost.cert.der").to_vec(),
+                    )],
+                    PrivateKeyDer::try_from(include_bytes!("testdata/localhost.key.der").to_vec())
+                        .unwrap(),
+                )
+                .unwrap();
+        config.ticketer = rustls::crypto::ring::Ticketer::new().unwrap();
+        TlsAcceptor::from(Arc::new(config))
+    }
+
+    /// Runs the probe against a real first handshake and a scripted second
+    /// connection that is handed to `second` once accepted.
+    async fn probe_with_second<F, Fut>(second: F) -> Result<TicketbleedVerdict, ProbeError>
+    where
+        F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send,
+    {
+        let acceptor = ticket_acceptor();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let transport = Transport::new(listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (first, _) = listener.accept().await.unwrap();
+            let _tls = acceptor.accept(first).await.unwrap();
+            let (stream, _) = listener.accept().await.unwrap();
+            second(stream).await;
+        });
+        let result = probe_ticketbleed(&transport, Some("localhost")).await;
+        server.await.unwrap();
+        result
+    }
+
+    /// A peer that closes instead of resuming is an error, not a verdict.
+    #[tokio::test]
+    async fn closed_before_resumption_is_error() {
+        let result = probe_with_second(|mut stream| async move {
+            // Consume the hello so closing does not reset the connection.
+            let mut buf = [0; 4096];
+            let _ = stream.read(&mut buf).await;
+        })
+        .await;
+        assert!(matches!(
+            result,
+            Err(ProbeError::Unexpected("peer closed before resumption"))
+        ));
+    }
+
+    /// Endless resumption handshake data hits the probe limit.
+    #[tokio::test]
+    async fn oversized_resumption_is_error() {
+        let result = probe_with_second(|mut stream| async move {
+            let mut header = [0; 5];
+            stream.read_exact(&mut header).await.unwrap();
+            let mut data = vec![0; usize::from(u16::from_be_bytes([header[3], header[4]]))];
+            stream.read_exact(&mut data).await.unwrap();
+            let suite = u16::from_be_bytes([data[72], data[73]]);
+            let mut out = record(22, &hello(&data[39..70], suite));
+            // NewSessionTicket messages of 16000 bytes each, never a CCS.
+            let mut ticket = vec![4, 0, 0x3e, 0x80];
+            ticket.resize(16_004, 0);
+            for _ in 0..70 {
+                out.extend(record(22, &ticket));
+            }
+            let _ = stream.write_all(&out).await;
+        })
+        .await;
+        assert!(matches!(
+            result,
+            Err(ProbeError::Unexpected("resumption exceeds probe limit"))
+        ));
+    }
+
+    /// A server that hangs up mid ticket handshake is an error.
+    #[tokio::test]
+    async fn closed_during_ticket_handshake_is_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let transport = Transport::new(listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0; 4096];
+            let _ = stream.read(&mut buf).await;
+        });
+        let result = probe_ticketbleed(&transport, Some("localhost")).await;
+        server.await.unwrap();
+        assert!(matches!(
+            result,
+            Err(ProbeError::Unexpected(
+                "peer closed during ticket handshake"
+            ))
+        ));
+    }
+
+    /// Non-handshake records and non-TLS 1.2 hellos are rejected when
+    /// extracting the ticket.
+    #[test]
+    fn ticket_extraction_rejects_unexpected_input() {
+        assert!(matches!(
+            extract_ticket(&record(21, &[2, 40])),
+            Err(ProbeError::Unexpected("unexpected ticket handshake record"))
+        ));
+        let mut old = hello(&[], 0xc02f);
+        old[4] = 3;
+        old[5] = 2;
+        assert!(matches!(
+            extract_ticket(&record(22, &old)),
+            Err(ProbeError::Unexpected("ticket handshake was not TLS 1.2"))
+        ));
+    }
+
+    /// An SSLv2-style record in the resumed flight is rejected.
+    #[test]
+    fn resumed_rejects_ssl2_record() {
+        assert!(matches!(
+            resumed(&[0x80, 1, 0], &[0; 31], 0xc02f),
+            Err(ProbeError::Unexpected("non-TLS resumption"))
+        ));
+    }
+
     /// An extended matching ID is positive, an exact echo negative; all else errors.
     #[test]
     fn evidence_requires_correlated_resumption() {
