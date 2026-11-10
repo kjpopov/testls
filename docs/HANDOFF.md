@@ -135,10 +135,13 @@ PR after it uses #100. Recheck fresh `main` before assigning a number.
   Fix-round local workspace tests, fmt, Clippy (`-D warnings`), cargo-deny
   and both CCS integration tests pass (177 s total). Fixes committed/pushed
   in `6b0476c`; both core-review threads resolved. CI at `6b0476c` is green,
-  including MSRV and integration. LAN fix rereview pending. CodeRabbit
+  including MSRV and integration. LAN fix rereview failed with a connection
+  timeout (`ETIMEDOUT`), not a review verdict. CodeRabbit marked the runtime
+  code LGTM at `6b0476c` and
   requested four documentation follow-ups: marker cleanup, one decision-
   number rule, intrusive CLI section placement and High-severity rationale.
-  All addressed in the next review-round commit; runtime severity unchanged
+  All addressed in `2afe893`; four threads replied to and resolved, rereview
+  requested. Final-head CI/review pending; runtime severity unchanged
   (NVD CVSS 3.1 7.4 High; server-only evidence, client/MITM prerequisites).
   No approval or merge performed; human security review still required.
   Reviewer shell denials diagnosed: global `agents/review.md` allows only
