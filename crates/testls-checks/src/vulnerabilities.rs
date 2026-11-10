@@ -73,8 +73,8 @@ fn vuln(
 /// Severity of the findings this module owns.
 fn severity(finding: &str) -> Option<Severity> {
     match finding {
-        "vuln.heartbleed" | "vuln.ticketbleed" => Some(Severity::Critical),
-        "vuln.crime" | "vuln.ccs_injection" => Some(Severity::High),
+        "vuln.heartbleed" => Some(Severity::Critical),
+        "vuln.crime" | "vuln.ccs_injection" | "vuln.ticketbleed" => Some(Severity::High),
         "vuln.renegotiation" | "vuln.opossum" => Some(Severity::Medium),
         "vuln.beast" | "vuln.logjam" | "vuln.fallback_scsv" | "vuln.raccoon" | "vuln.breach"
         | "vuln.alpaca" => Some(Severity::Low),
@@ -657,7 +657,7 @@ mod tests {
         };
         let findings = vulnerability_findings(&[item]);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity, Severity::Critical);
+        assert_eq!(findings[0].severity, Severity::High);
         assert_eq!(findings[0].message, "Ticketbleed: possible memory exposure");
     }
 

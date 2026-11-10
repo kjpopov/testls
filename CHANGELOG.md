@@ -13,7 +13,8 @@ All notable changes to `testls` are listed here. The format follows
   a critical finding; early CCS with a bad record MAC creates a high finding.
   Refused or unanswered probes remain inconclusive.
 - Opt-in Ticketbleed probe for TLS 1.2 session ticket resumption; abnormal
-  session ID extension flags possible memory exposure.
+  session ID extension creates a high finding for possible memory exposure;
+  an unchanged echo reports not vulnerable. Skipped when TLS 1.2 is not offered.
 
 ## [0.6.0] - 2026-11-08
 

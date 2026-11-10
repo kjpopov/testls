@@ -128,8 +128,9 @@ reported as `vuln.ccs_injection` (high); CVE-2014-0224 exploitation also
 requires a vulnerable client and a man in the middle. Ticketbleed first
 completes a TLS 1.2 handshake for a session ticket, then requests resumption
 with a 31-byte session ID; an ID extended by one byte in the abbreviated
-server flight produces a critical `vuln.ticketbleed` finding for **possible**
-memory exposure (CVE-2016-9244). Some servers extend the ID without disclosing
+server flight produces a high `vuln.ticketbleed` finding for **possible**
+memory exposure (CVE-2016-9244; NVD 7.5 High). An unchanged echo is reported
+as not vulnerable. TLS 1.3-only servers are not tested. Some servers extend the ID without disclosing
 memory, so check the server implementation. The Heartbleed and CCS probes do
 not complete the handshake; the ticket probe does, and its handshake supports
 the TLS 1.2 algorithms available to rustls, so older-only servers remain not

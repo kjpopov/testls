@@ -20,15 +20,29 @@ use crate::{ProbeError, Transport, certificates::tls12_client_config, hello::cli
 /// Bound data retained while reading either handshake.
 const LIMIT: usize = 1024 * 1024;
 
+/// Outcome of a completed Ticketbleed resumption.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TicketbleedVerdict {
+    /// The server extended the 31-byte session ID: possible memory exposure.
+    ExtendedId,
+    /// The server echoed the session ID unchanged, as RFC 5077 §3.4 requires.
+    EchoedId,
+}
+
 /// Tests for an extended session ID during TLS 1.2 ticket resumption.
 ///
-/// A successful result indicates a possible disclosure, not proof of the
-/// origin of the extra byte. No returned data contains the byte or ticket.
+/// [`TicketbleedVerdict::ExtendedId`] indicates a possible disclosure, not
+/// proof of the origin of the extra byte. No returned data contains the byte
+/// or ticket.
 ///
 /// # Errors
-/// Returns an error for unsupported handshakes, refusal, malformed responses,
-/// and timeouts; these do not establish that the server is safe.
-pub async fn probe_ticketbleed(transport: &Transport, sni: Option<&str>) -> Result<(), ProbeError> {
+/// Returns an error for unsupported handshakes, refusal, malformed or
+/// mismatched responses, and timeouts; these do not establish that the server
+/// is safe.
+pub async fn probe_ticketbleed(
+    transport: &Transport,
+    sni: Option<&str>,
+) -> Result<TicketbleedVerdict, ProbeError> {
     let (ticket, initial) = obtain_ticket(transport, sni).await?;
     let mut marker = [0_u8; 31];
     getrandom::fill(&mut marker).map_err(|_| ProbeError::Unexpected("session ID RNG failed"))?;
@@ -59,8 +73,8 @@ pub async fn probe_ticketbleed(transport: &Transport, sni: Option<&str>) -> Resu
             if input.len() > LIMIT {
                 return Err(ProbeError::Unexpected("resumption exceeds probe limit"));
             }
-            if let Some(result) = resumed(&input, &marker, initial.cipher_suite)? {
-                return result;
+            if let Some(verdict) = resumed(&input, &marker, initial.cipher_suite)? {
+                return Ok(verdict);
             }
         }
     })
@@ -159,11 +173,12 @@ fn extract_ticket(bytes: &[u8]) -> Result<(Vec<u8>, ServerHello), ProbeError> {
 }
 
 /// Checks a resumed flight: hello, optional ticket renewal, then valid CCS.
+/// Returns a verdict once the CCS arrives, `None` while more bytes are needed.
 fn resumed(
     bytes: &[u8],
     marker: &[u8; 31],
     suite: u16,
-) -> Result<Option<Result<(), ProbeError>>, ProbeError> {
+) -> Result<Option<TicketbleedVerdict>, ProbeError> {
     let mut records = bytes;
     let mut handshake = Vec::new();
     let mut hello = None;
@@ -192,19 +207,21 @@ fn resumed(
             }
             ContentType::ChangeCipherSpec if record.fragment == [1] && handshake.is_empty() => {
                 let h = hello.ok_or(ProbeError::Unexpected("missing resumed server hello"))?;
-                let extended = h.negotiated_version().map_err(ProbeError::Decode)?
+                let matches = h.negotiated_version().map_err(ProbeError::Decode)?
                     == ProtocolVersion::TLS12
                     && h.cipher_suite == suite
-                    && h.compression_method == 0
-                    && h.session_id.len() == 32
-                    && h.session_id.starts_with(marker);
-                return Ok(Some(if extended {
-                    Ok(())
-                } else {
-                    Err(ProbeError::Unexpected(
-                        "session ID did not indicate potential disclosure",
-                    ))
-                }));
+                    && h.compression_method == 0;
+                return match h.session_id.len() {
+                    32 if matches && h.session_id.starts_with(marker) => {
+                        Ok(Some(TicketbleedVerdict::ExtendedId))
+                    }
+                    31 if matches && h.session_id == marker => {
+                        Ok(Some(TicketbleedVerdict::EchoedId))
+                    }
+                    _ => Err(ProbeError::Unexpected(
+                        "resumed hello did not echo the session ID",
+                    )),
+                };
             }
             _ => return Err(ProbeError::Unexpected("peer did not resume ticket")),
         }
@@ -243,7 +260,7 @@ mod tests {
         message
     }
 
-    /// An extended matching ID followed by CCS is the only positive result.
+    /// An extended matching ID is positive, an exact echo negative; all else errors.
     #[test]
     fn evidence_requires_correlated_resumption() {
         let marker = [17; 31];
@@ -257,14 +274,12 @@ mod tests {
         for n in 0..bytes.len() {
             assert!(resumed(&bytes[..n], &marker, 0xc02f).unwrap().is_none());
         }
-        assert!(resumed(&bytes, &marker, 0xc02f).unwrap().unwrap().is_ok());
-        assert!(
-            resumed(&bytes, &[18; 31], 0xc02f)
-                .unwrap()
-                .unwrap()
-                .is_err()
+        assert_eq!(
+            resumed(&bytes, &marker, 0xc02f).unwrap(),
+            Some(TicketbleedVerdict::ExtendedId)
         );
-        assert!(resumed(&bytes, &marker, 0xc030).unwrap().unwrap().is_err());
+        assert!(resumed(&bytes, &[18; 31], 0xc02f).is_err());
+        assert!(resumed(&bytes, &marker, 0xc030).is_err());
         let mut full = bytes[..partial].to_vec();
         full.extend(record(22, &[14, 0, 0, 0]));
         assert!(resumed(&full, &marker, 0xc02f).is_err());
@@ -273,7 +288,12 @@ mod tests {
         assert!(resumed(&alert, &marker, 0xc02f).is_err());
         let mut equal = record(22, &hello(&marker, 0xc02f));
         equal.extend(record(20, &[1]));
-        assert!(resumed(&equal, &marker, 0xc02f).unwrap().unwrap().is_err());
+        assert_eq!(
+            resumed(&equal, &marker, 0xc02f).unwrap(),
+            Some(TicketbleedVerdict::EchoedId)
+        );
+        assert!(resumed(&equal, &marker, 0xc030).is_err());
+        assert!(resumed(&equal, &[18; 31], 0xc02f).is_err());
     }
 
     /// A real TLS server accepts the acquired ticket and echoes the short ID.
@@ -332,7 +352,7 @@ mod tests {
             assert_ne!(n, 0, "server closed before resumption");
             input.extend_from_slice(&buf[..n]);
             if let Some(verdict) = resumed(&input, &marker, initial.cipher_suite).unwrap() {
-                assert!(verdict.is_err(), "correct ID echo cannot indicate exposure");
+                assert_eq!(verdict, TicketbleedVerdict::EchoedId);
                 break;
             }
         }
@@ -388,7 +408,12 @@ mod tests {
                 }
             });
             let result = probe_ticketbleed(&transport, Some("localhost")).await;
-            assert_eq!(result.is_ok(), leak, "{result:?}");
+            let expected = if leak {
+                TicketbleedVerdict::ExtendedId
+            } else {
+                TicketbleedVerdict::EchoedId
+            };
+            assert_eq!(result.unwrap(), expected);
             server.await.unwrap();
         }
     }

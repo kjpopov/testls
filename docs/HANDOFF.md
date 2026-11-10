@@ -109,8 +109,9 @@ if `gh` is allowed); update it when a session ends.
 - This branch (PR #158) implements the opt-in Ticketbleed probe in
   `testls-probe/src/ticketbleed.rs`: a complete TLS 1.2 handshake for a
   session ticket, then resumption with a 31-byte session ID; an ID extended
-  by one byte in the abbreviated flight flags possible memory exposure.
-  Reuses the OpenSSL 1.0.1f heartbleed fixture on port 14435. Ticketbleed and
+  by one byte in the abbreviated flight flags possible memory exposure
+  (High, per NVD); an unchanged echo reports not vulnerable; skipped when
+  TLS 1.2 is not offered. Review round 1 addressed. Reuses the OpenSSL 1.0.1f heartbleed fixture on port 14435. Ticketbleed and
   ROBOT remain open on the milestone.
 
 Do not mark the v0.6.1 milestone done until Ticketbleed (#158) and ROBOT

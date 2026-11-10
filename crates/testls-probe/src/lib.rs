@@ -43,7 +43,7 @@ pub use response::HelloResponse;
 use response::ResponseParser;
 pub use starttls::Starttls;
 use testls_wire::{DecodeError, EncodeError};
-pub use ticketbleed::probe_ticketbleed;
+pub use ticketbleed::{TicketbleedVerdict, probe_ticketbleed};
 pub use upgrade::{TlsUpgrade, probe_tls_upgrade};
 
 /// Error from a single probe.
