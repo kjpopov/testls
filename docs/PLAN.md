@@ -163,16 +163,10 @@ Two connection paths:
 
 All behind the opt-in `--intrusive` flag (decision #97), one PR per check.
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:c59794ffd3294d93f73f28338bdee2d1ff0144aa6eb76cfd423b11ecfd31af62 -->
-
 - [x] Heartbleed (PR #154)
 - [x] CCS injection
 - [ ] Ticketbleed
 - [ ] ROBOT
-
-<!-- /coderabbit-ai-generated:v1 -->
 
 ### v0.7 — Monitoring (sketch)
 - Target groups with owners, expiry dashboard, scheduled rescans with diff
@@ -209,42 +203,15 @@ Not scheduled; pulled into a milestone when someone picks it up.
 - Docs: catalogue of checks, mapping from testssl.sh options, threat model
 - Politeness: `--delay` between connections to one target
 - Bounded parallel probes per target (`--parallel`, #8 as planned, see #89)
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:b9a49ceb79dee357f395a686c34161f77b0c18f2c83bae84d4e4d5ae40e5ce9f -->
-
 - Intrusive checks behind `--intrusive`: see the v0.6.1 milestone
   (Heartbleed and CCS injection implemented; Ticketbleed and ROBOT pending;
   moved from v0.5, #90)
-
-<!-- /coderabbit-ai-generated:v1 -->
 
 ## Open questions
 
 None at the moment (default profile and politeness settled in #88, #89).
 
 ## Decision log
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:24914a2991b4b9822b1f9a27a882e2752ea04de2cb0f84a118552bbd00f6d0cf -->
-
-<!-- coderabbit-ai-generated:v1 -->
-<!-- coderabbit-ai-generated-section:v1:f674fedf3a1e0a02fd8ed7e55af031a1cb98e697a670085d66112a581080a8ee -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:f18673cca74a36119a11a7e58376642c6698ae9432a7e9d95dd462dea60735c6 -->
-
-<!-- Provenance for the decision log follows. -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:bbfd7e9fbb876dbde2ba17fb3a8d559db96bfb2478e0a5fdf5382227b9888138 -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:82872460fc9307187f0c0101cee20942f7809ff11c4fa3b24d222a38aec4b677 -->
 
 | # | Decision | Rationale |
 | --- | --- | --- |
@@ -346,15 +313,4 @@ None at the moment (default profile and politeness settled in #88, #89).
 | 96 | Embedded UI: `index.html`, `app.js`, `app.css` in `crates/testls-server/ui/`, compiled in with `include_str!` and served at `/`, `/ui/app.js`, `/ui/app.css` under `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`. The files skip the token check (they hold no data; a browser cannot send a bearer token when opening a page) but not the loopback Host check. The page asks for the token and keeps it in `sessionStorage`; SSE is read through `fetch` because `EventSource` cannot send headers; exports are fetched as blobs. DOM is built with `createElement`/`textContent` only; a unit test rejects `innerHTML`-style sinks and inline code. Explanations come from new `GET /explanations/{id}`. The UI renders the structured JSON report, the section text only as progress and raw output | No build step or JS dependencies to audit; a strict CSP plus no markup parsing means hostile certificate or header text cannot run script |
 | 97 | Intrusive checks ship as a series, starting with explicit `--intrusive` Heartbleed detection at measured TLS 1.0–1.2 versions. Only correlated pre-handshake disclosure confirms vulnerability; errors and refusals remain not tested. No profile enables it and the server API does not expose it. CCS injection, Ticketbleed and ROBOT remain pending | Maintainer selected staged PRs and confirmed evidence; keep attack traffic opt-in and avoid false assurance |
 | 98 | Intrusive checks are scheduled as milestone v0.6.1, one PR per check behind `--intrusive`: Heartbleed (shipped in PR #154, #97), then CCS injection, Ticketbleed and ROBOT | Amends #34 and #90; staging one vulnerability per PR keeps the review, the test server and the fixtures small while attack traffic stays opt-in |
-| 99 | CCS injection probe sends premature CCS and bogus ciphertext for measured TLS 1.0–1.2 only when `--intrusive` is set, after a flight containing exactly one validated ServerHello; a fatal bad_record_mac at the measured version indicates early cipher activation, other outcomes remain not tested | Keep the attack opt-in, reject duplicate hellos before attack traffic, and avoid treating rejection or silence as proof of safety |
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-
-<!-- /coderabbit-ai-generated:v1 -->
+| 99 | CCS injection probe sends premature CCS and bogus ciphertext for measured TLS 1.0–1.2 only when `--intrusive` is set, after a flight containing exactly one validated ServerHello; a fatal bad_record_mac at the measured version indicates early cipher activation, other outcomes remain not tested | Keep the attack opt-in, reject duplicate hellos before attack traffic, and avoid treating rejection or silence as proof of safety. High follows [NVD CVSS 3.1, 7.4](https://nvd.nist.gov/vuln/detail/CVE-2014-0224), reflecting confidentiality/integrity compromise despite high attack complexity; the [OpenSSL 2014-06-05 advisory](https://openssl-library.org/news/secadv/20140605.txt) requires both vulnerable client and server plus MITM, so this probe confirms only the server-side prerequisite, not a completed exploit |

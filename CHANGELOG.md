@@ -4,27 +4,14 @@ All notable changes to `testls` are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:f32959cd3015f8ae8fe2d71863308271fa9608ac5116cf3d2ff35a3c04a2508d -->
-
 ## [Unreleased]
 
 ### Added
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:8ed5736259a857b11794802b1433b22132fe3468d20dc6cc4ebaed3fddc3b69b -->
 
 - Explicit `--intrusive` pre-handshake Heartbleed and CCS injection probes
   for measured TLS 1.0–1.2 versions. Correlated Heartbleed disclosure creates
   a critical finding; early CCS with a bad record MAC creates a high finding.
   Refused or unanswered probes remain inconclusive.
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-
-<!-- /coderabbit-ai-generated:v1 -->
 
 ## [0.6.0] - 2026-11-08
 

@@ -71,10 +71,6 @@ if `gh` is allowed); update it when a session ends.
   with the moderators). Keep generating `packaging/winget/X.Y.Z/` in the
   packages PR, but do not remind the maintainer each release.
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:8ee8a4a669a565448ad298fbcf9e32f47584f4552e222e14cd85291c854158e7 -->
-
 ## Intrusive checks implementation in progress
 
 - v0.6.1 milestone (PLAN decision #98), one PR per check: first PR of
@@ -84,46 +80,23 @@ if `gh` is allowed); update it when a session ends.
   port 14435. No profile or server API implicitly enables it. Correlated
   pre-handshake disclosure is critical; rejection and silence remain not
   tested.
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:d82e77156a5694fb7efdb4f8cd5ec7ce600a8ddf9f610cd347d337748c7bb03a -->
-
 - PR #154 CI repair: terminate the pre-handshake exchange after the bounded
   heartbeat to flush OpenSSL 1.0.1 buffered replies; scripted peers verify
   the termination record and heartbeat followed by a fatal alert.
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:a0b844454e47f510e088fb0b44cb8a5db413a906ce0cb202f31dc26e7aaeef1e -->
-
-- PR #157 (open; initial review target `065d761`) implements an opt-in early CCS probe in
+- PR #157 (open; initial review target `065d761`) implements an opt-in early
+  CCS probe in
   `testls-probe/src/ccs.rs`. A fatal `bad_record_mac` following the probe
   indicates early cipher activation; other replies remain not tested. The
   OpenSSL 1.0.1g and 1.0.1h fixtures exercise affected and patched versions.
   Ticketbleed and ROBOT remain.
 
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 -->
-  Do not mark the v0.6.1 milestone done until CCS injection, Ticketbleed
-  and ROBOT are each merged.
+Do not mark the v0.6.1 milestone done until CCS injection, Ticketbleed
+and ROBOT are each merged.
 
 ## Next work
 
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:09f6f4ea6a11bdec9f1b9b902776fc5182b196338d4138260d90d7be2ffab861 -->
-
-<!-- Provenance for the updated list follows. -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:f3f9b9ab0cf59d79194801b4dea06956ebb2ff02ddff1a4238ca385847379618 -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:7a60e3c2b5677e1e5f39b75f3928190dbf33fd3b18dba6275e45fc737ad235a5 -->
+Next free decision: #99 on `main`; this PR (#157) takes #99, so the next
+PR after it uses #100. Recheck fresh `main` before assigning a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
    packages PR #151 merged. New crates need a manual first publish plus a
@@ -134,18 +107,10 @@ if `gh` is allowed); update it when a session ends.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-   Next decision number: **#100 after #157 merges** (#99 on main).
 3. v0.6.1 (PLAN decision #98): intrusive checks, one PR each behind
    `--intrusive` — Heartbleed done in #154; CCS injection pending review
    and merge in #157; next Ticketbleed and ROBOT. Then backlog: `--delay`,
-   `--parallel`. Main's next decision is #99; #157 proposes #99, so #100
-   applies only after it merges.
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 -->
+   `--parallel`.
 
 ## Habits that worked
 
@@ -168,8 +133,13 @@ if `gh` is allowed); update it when a session ends.
   Only `ccs-patched` was started this session and stopped after tests;
   pre-existing Heartbleed containers were left running.
   Fix-round local workspace tests, fmt, Clippy (`-D warnings`), cargo-deny
-  and both CCS integration tests pass (177 s total). LAN rereview and
-  new-head CI pending; fix round to be committed/pushed together.
+  and both CCS integration tests pass (177 s total). Fixes committed/pushed
+  in `6b0476c`; both core-review threads resolved. CI at `6b0476c` is green,
+  including MSRV and integration. LAN fix rereview pending. CodeRabbit
+  requested four documentation follow-ups: marker cleanup, one decision-
+  number rule, intrusive CLI section placement and High-severity rationale.
+  All addressed in the next review-round commit; runtime severity unchanged
+  (NVD CVSS 3.1 7.4 High; server-only evidence, client/MITM prerequisites).
   No approval or merge performed; human security review still required.
   Reviewer shell denials diagnosed: global `agents/review.md` allows only
   `git diff/log/show/status/blame` prefixes; `git -C`, `head`/`tail` pipes,
