@@ -36,7 +36,7 @@ def sample_external():
                 {"id": "cipher-tls1_2_x002f"},
                 {"id": "heartbleed", "finding": "not vulnerable"},
                 {"id": "CCS", "finding": "vulnerable"},
-                {"id": "scanTime", "finding": "1"}]
+                 {"id": "scanTime", "severity": "INFO", "finding": "1"}]
 
 
 def fixture():
@@ -168,6 +168,27 @@ class AdapterTests(unittest.TestCase):
         data[0]["finding"] = "offered"
         data.append({"id": "cipher-ssl2_x010080"})
         self.assertEqual(AUDIT.external_result(data)["ciphers"]["SSLv2"], [0x010080])
+
+    def test_interrupted_completion_record_keeps_suites_incomplete_after_exit_zero(self):
+        """Reject warning or malformed final records despite a zero exit and no budget timeout."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "external.json"
+            for completion in ({"severity": "WARN", "finding": "synthetic interruption"},
+                               {"severity": "WARN", "finding": "1"},
+                               {"severity": "INFO", "finding": "synthetic interruption"},
+                               {"severity": "INFO", "finding": "-1"},
+                               {"severity": "INFO", "finding": 1},
+                               {"severity": "INFO"}, {"finding": "1"}):
+                with self.subTest(completion=completion):
+                    data = sample_external()
+                    data[-1] = {"id": "scanTime", **completion}
+                    path.write_text(json.dumps(data))
+                    result = AUDIT.measurement(path, AUDIT.external_result,
+                                               {"exit_code": 0, "timed_out": False}, None)
+                    self.assertEqual(result["ciphers"]["TLSv1.2"], [0x002f])
+                    self.assertIn("comparator completion record is not successful", result["incomplete"])
+                    compared = AUDIT.compare(fixture(), AUDIT.testls_result(sample_testls()), result)
+                    self.assertEqual(compared["status"], "incomplete")
 
     def test_testls_scan_error_and_malformed_output_remain_incomplete(self):
         """A parseable scan error and a missing file cannot become successful measurements."""

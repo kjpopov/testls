@@ -138,8 +138,10 @@ testls exit 1 is valid measurement output, not a process error. Every nonzero
 comparator exit remains incomplete: even warning codes 1–49 and a final
 `scanTime` record cannot confirm complete enumeration. Parseable measurements
 are retained for review, not discarded or treated as a successful negative.
-Missing completion records, failed sections and malformed output also remain
-incomplete. JSON shape, duplicate measurements and numeric suite
+Missing, duplicate, warning or malformed completion records remain incomplete,
+even after exit 0: the pinned successful record contains `INFO` and elapsed
+whole seconds. Failed sections and malformed output also remain incomplete.
+JSON shape, duplicate measurements and numeric suite
 identifiers are checked; unfamiliar output is inconclusive. Only the pinned
 flat JSON format is supported: suite IDs come from `cipher-..._xHHHH` records
 (six hex digits for SSLv2), not an optional `hexcode` field. This public output

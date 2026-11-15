@@ -217,6 +217,15 @@ if `gh` is allowed); update it when a session ends.
    smoke with inherited `PHONE_OUT=true` and `BASH_ENV` passes in the controlled
    environment with matching provenance and both suites; its listener is closed.
    An empty-PATH suite run was permission-denied, not claimed as verified.
+   Latest full review approved `fe3855e` with all 27 checks passing, but its
+   outside-diff body flagged one valid completion gap. A warning `scanTime`
+   could be accepted after exit 0. Regression reproduces the false completion;
+   adapter now requires exactly one INFO record with elapsed whole seconds,
+   retaining suites but marking warnings/malformed records incomplete.
+   This successful shape is confirmed by the earlier authorized public output;
+   no comparator implementation was inspected. All 35 tests, diff/fmt and
+   docstrings pass; both earlier successful comparator captures still parse
+   as complete with their two suites. Fresh CI/review pending after the fix.
   `cargo deny check` is locally blocked by pre-existing `rustix 1.1.5`
   RUSTSEC-2026-0486 (fixed in 1.1.6); no dependency change or issue creation.
   Human security review and merge authorization remain pending for #165;

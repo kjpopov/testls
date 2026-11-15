@@ -194,9 +194,14 @@ def external_result(data):
             result["vulnerabilities"][EXTERNAL_VULNS[identifier]] = status
     for suites in result["ciphers"].values():
         suites.sort()
-    # v3.2.5 public output emits this final record even without the pretty footer.
-    if sum(row.get("id") == "scanTime" for row in data) != 1:
+    # Verified v3.2.5 completion output contains INFO and elapsed whole seconds.
+    completion = [row for row in data if row.get("id") == "scanTime"]
+    if len(completion) != 1:
         result["incomplete"].append("comparator completion record missing or duplicated")
+    elif (completion[0].get("severity") != "INFO"
+          or not isinstance(completion[0].get("finding"), str)
+          or not re.fullmatch(r"[0-9]+", completion[0]["finding"])):
+        result["incomplete"].append("comparator completion record is not successful")
     return complete_sections(result)
 
 
