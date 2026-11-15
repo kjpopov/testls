@@ -37,6 +37,19 @@ normal CI. Vulnerable fixtures must remain loopback-only.
 3. Choose an existing OpenSSL binary explicitly. Record its version with
    each run; tool availability and optional engines affect coverage.
 
+4. Make an executable named `timeout` available on `PATH` before running.
+   The comparator needs it for the connection/OpenSSL timeout options. A
+   GNU-compatible utility is suitable on macOS and Linux. If needed, install
+   GNU coreutils yourself; on Homebrew, expose its unprefixed commands for
+   this shell only:
+
+   ```sh
+   export PATH="$(brew --prefix coreutils)/libexec/gnubin:$PATH"
+   command -v timeout
+   ```
+
+   The runner checks availability, records its identity and never installs it.
+
 ## Plan and run
 
 Preview the fixture manifest and commands without invoking any scanner or
@@ -66,10 +79,14 @@ python3 scripts/audit-fixtures.py run \
   --fixture modern --fixture mysql --output target/fixture-audits/run-002
 ```
 
-The manifest fixes ports, STARTTLS modes, expected protocols and historical
-Heartbleed/CCS controls. Targets cannot be changed to remote hosts. Both tools
-use loopback, `localhost` SNI and the fixture CA. The testls default profile
-plus explicit `--intrusive` covers the intrusive probes without external
+The manifest fixes fixture ports, STARTTLS modes, expected protocols and
+historical Heartbleed/CCS controls. The default profile also attempts one plaintext RFC 2817
+`OPTIONS *` upgrade request to **127.0.0.1:80 per direct-TLS fixture**, as well
+as the fixture port. Port 80 is not a fixture port; an unrelated local service
+listening there can receive the request. Do not run direct-TLS audits unless
+that additional loopback request is acceptable. Targets cannot be changed to
+remote hosts. Both tools use loopback, `localhost` SNI and the fixture CA.
+The testls default profile plus explicit `--intrusive` covers the intrusive probes without external
 revocation fetches. Comparator DNS, grading and client simulation are excluded.
 No independent handshake containing ephemeral secrets is captured automatically.
 
@@ -87,7 +104,10 @@ under umask 077):
 - `summary.json`: schema-v1 report, exact commands, return codes, durations,
   normalized measurements, selected fixture controls and provenance. Includes
   repository revision/dirty state, manifest and CA hashes, comparator revision
-  and entry-script hash, binary hashes/versions and process budgets.
+  and entry-script hash, binary hashes/versions and process budgets. Input file
+  identities and comparator pin/clean state are checked before and after every
+  scanner invocation; changed inputs are skipped or marked incomplete, and
+  their output is not attributed to the initially recorded tool versions.
 - `summary.md`: per-fixture result, candidate differences, incomplete sections
   and explicit vulnerability-scope notes.
 - `NAME.testls.json`, `NAME.testssl.json`: original local scanner outputs.
@@ -107,12 +127,16 @@ Runner exit codes are separate from the scanner's finding threshold:
 | 1 | Candidate disagreement requiring review |
 | 2 | Incomplete, interrupted or invalid run; may also contain disagreements |
 
-testls exit 1 is valid measurement output, not a process error. The comparator
-has a different exit-code contract: usable protocol/cipher sections can survive
-optional-dependency warnings. Missing/failed sections and malformed output are
-not interpreted as empty sets or successful negatives. JSON shape, duplicate
-measurements and numeric suite identifiers are checked; unfamiliar output is
-inconclusive. Only the pinned flat JSON format is supported.
+testls exit 1 is valid measurement output, not a process error. Comparator
+warning codes 1–49 require usable protocol/cipher sections and exactly one
+final `scanTime` record. Reserved/fatal codes (50 and above), missing completion
+records, failed sections and malformed output remain incomplete even when
+partial cipher rows exist. JSON shape, duplicate measurements and numeric suite
+identifiers are checked; unfamiliar output is inconclusive. Only the pinned
+flat JSON format is supported: suite IDs come from `cipher-..._xHHHH` records
+(six hex digits for SSLv2), not an optional `hexcode` field. This public output
+shape was verified against the pinned release using a disposable loopback TLS
+listener; its implementation and protocol/client tables were not inspected.
 
 Suites are compared by numeric IANA identifiers, not names, severity labels,
 grades or ordering. Known fixture controls also catch both tools agreeing on

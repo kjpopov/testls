@@ -33,9 +33,10 @@ def sample_external():
     """Construct synthetic public comparator field records, not captured scanner content."""
     return [{"id": identifier, "finding": "offered" if version == "TLSv1.2" else "not offered"}
             for identifier, version in AUDIT.EXTERNAL_PROTOCOLS.items()] + [
-                {"id": "cipher-tls1_2_x002f", "hexcode": "0x00,0x2f"},
+                {"id": "cipher-tls1_2_x002f"},
                 {"id": "heartbleed", "finding": "not vulnerable"},
-                {"id": "CCS", "finding": "vulnerable"}]
+                {"id": "CCS", "finding": "vulnerable"},
+                {"id": "scanTime", "finding": "1"}]
 
 
 def fixture():
@@ -57,7 +58,7 @@ class AdapterTests(unittest.TestCase):
     def test_cipher_difference_is_review_not_proof(self):
         """Compare IANA identifiers, ignoring names, severities and ordering."""
         data = sample_external()
-        data.append({"id": "cipher-tls1_2_x0035", "hexcode": "0x00,0x35", "finding": "ignored"})
+        data.append({"id": "cipher-tls1_2_x0035", "finding": "ignored"})
         row = AUDIT.compare(fixture(), AUDIT.testls_result(sample_testls()), AUDIT.external_result(data))
         self.assertEqual(row["status"], "review")
         self.assertIn("comparator-only 0x0035", row["differences"][0])
@@ -73,8 +74,10 @@ class AdapterTests(unittest.TestCase):
     def test_bad_suite_and_duplicate_measurements_fail_closed(self):
         """Reject malformed suite identifiers, duplicate records and wrong JSON shapes."""
         for data in (sample_external() + [sample_external()[0]], {"scanResult": []},
-                     sample_external() + [{"id": "cipher-tls1_2_x0035", "hexcode": "invalid"}],
-                     sample_external() + [{"id": "cipher-tls1_2_x0035", "hexcode": "0x00,0x00,0x35"}]):
+                     sample_external() + [{"id": "cipher-tls1_2_x000035"}],
+                     sample_external() + [{"id": "cipher-ssl2_x0035"}],
+                     sample_external() + [{"id": "cipher-tls1_2_xzzzz"}],
+                     sample_external() + [{"id": "cipher-unknown_x002f"}]):
             with self.subTest(data=data), self.assertRaises(ValueError):
                 AUDIT.external_result(data)
         ours = sample_testls()
@@ -97,8 +100,8 @@ class AdapterTests(unittest.TestCase):
     def test_unrecognized_external_verdict_is_inconclusive(self):
         """Do not derive vulnerability negatives from unfamiliar wording or severity."""
         data = sample_external()
-        data[-1]["finding"] = "unrecognized response"
-        data[-1]["severity"] = "OK"
+        data[-2]["finding"] = "unrecognized response"
+        data[-2]["severity"] = "OK"
         row = AUDIT.compare(fixture(), AUDIT.testls_result(sample_testls()), AUDIT.external_result(data))
         self.assertEqual(row["status"], "incomplete")
 
@@ -139,6 +142,27 @@ class AdapterTests(unittest.TestCase):
             self.assertFalse(AUDIT.measurement(path, AUDIT.external_result, run, None)["incomplete"])
             run["timed_out"] = True
             self.assertTrue(AUDIT.measurement(path, AUDIT.external_result, run, None)["incomplete"])
+
+    def test_comparator_fatal_exit_keeps_partial_suites_incomplete(self):
+        """Do not accept parseable nonempty cipher sections after a documented fatal failure."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "external.json"
+            path.write_text(json.dumps(sample_external()))
+            for code in (50, 200, 242, 244, 245, 246, 255):
+                with self.subTest(code=code):
+                    result = AUDIT.measurement(path, AUDIT.external_result,
+                                               {"exit_code": code, "timed_out": False}, None)
+                    self.assertEqual(result["ciphers"]["TLSv1.2"], [0x002f])
+                    self.assertTrue(result["incomplete"])
+
+    def test_comparator_requires_final_record_and_correct_suite_widths(self):
+        """Check completion records and public ID-only TLS/SSLv2 cipher encodings."""
+        self.assertTrue(AUDIT.external_result(sample_external()[:-1])["incomplete"])
+        self.assertTrue(AUDIT.external_result(sample_external() + [sample_external()[-1]])["incomplete"])
+        data = sample_external()
+        data[0]["finding"] = "offered"
+        data.append({"id": "cipher-ssl2_x010080"})
+        self.assertEqual(AUDIT.external_result(data)["ciphers"]["SSLv2"], [0x010080])
 
     def test_testls_scan_error_and_malformed_output_remain_incomplete(self):
         """A parseable scan error and a missing file cannot become successful measurements."""
@@ -239,7 +263,8 @@ class RunnerTests(unittest.TestCase):
             args = argparse.Namespace(testls=ours, testssl_dir=theirs, openssl=Path(sys.executable),
                                       bash=Path(sys.executable), ca=root / "ca", output=root / "output",
                                       manifest=root / "manifest", testls_budget=10, comparator_budget=10)
-            with patch.object(AUDIT, "metadata", return_value={"synthetic": True}):
+            with patch.object(AUDIT, "metadata", return_value={"inputs": {"synthetic": True}}), \
+                    patch.object(AUDIT, "checked_provenance", return_value={"synthetic": True}):
                 self.assertEqual(AUDIT.run_audit(args, {"fixtures": [fixture()]}), 0)
             result = json.loads((args.output / "summary.json").read_text())
             self.assertTrue(result["complete_run"])
@@ -275,7 +300,7 @@ class RunnerTests(unittest.TestCase):
             ca.write_text("synthetic CA\n")
             config.write_text("{}\n")
             args = argparse.Namespace(testls=Path(sys.executable), openssl=Path(sys.executable),
-                                      bash=Path(sys.executable), ca=ca, manifest=config)
+                                      bash=Path(sys.executable), timeout=Path(sys.executable), ca=ca, manifest=config)
             replies = [str(external), "a" * 40, "a" * 40, "", "b" * 40, "", "testls fake",
                        "OpenSSL fake", "bash fake"]
             with patch.object(AUDIT, "inspect_tool", side_effect=replies):
@@ -284,6 +309,65 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(result["ca_sha256"], AUDIT.digest(ca))
             self.assertEqual(result["testls"]["sha256"], AUDIT.digest(sys.executable))
             self.assertFalse(result["repository_dirty"])
+
+    def test_file_identity_detects_replacement_and_during_hash_changes(self):
+        """Reject changing bytes or replaced inodes, even when the replacement has identical bytes."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tool"
+            path.write_text("original\n")
+            original = AUDIT.file_identity(path)
+            replacement = path.with_name("replacement")
+            replacement.write_text("original\n")
+            replacement.replace(path)
+            replaced = AUDIT.file_identity(path)
+            self.assertEqual(original["sha256"], replaced["sha256"])
+            self.assertNotEqual(original["inode"], replaced["inode"])
+
+            def change_while_hashing(_path):
+                """Simulate an input mutation during checksum calculation."""
+                path.write_text("changed bytes\n")
+                return original["sha256"]
+
+            with patch.object(AUDIT, "digest", side_effect=change_while_hashing), \
+                    self.assertRaisesRegex(ValueError, "changed while hashing"):
+                AUDIT.file_identity(path)
+
+    def test_verified_capture_skips_changed_inputs_or_checkout(self):
+        """Never start a scanner after executable replacement, changed pin, or unavailable inputs."""
+        recorded = {"comparator": {"revision": "a" * 40}, "files": {"tool": "original"}}
+        changed = ({**recorded, "files": {"tool": "replacement"}},
+                   {**recorded, "comparator": {"revision": "b" * 40}}, {"error": "missing"})
+        for current in changed:
+            with self.subTest(current=current), \
+                    patch.object(AUDIT, "checked_provenance", return_value=current), \
+                    patch.object(AUDIT, "capture") as capture:
+                result = AUDIT.verified_capture(["tool"], Path("/"), Path("out"), Path("err"),
+                                               1, None, None, None, recorded)
+                capture.assert_not_called()
+                self.assertTrue(result["skipped"])
+                self.assertFalse(result["attributed_to_recorded_inputs"])
+                measured = AUDIT.measurement(Path("/absent"), AUDIT.testls_result, result, {0, 1})
+                self.assertIn("scanner skipped after provenance mismatch", measured["incomplete"])
+
+    def test_verified_capture_marks_mid_scan_changes_unattributed(self):
+        """Keep measurements incomplete when inputs change between the before and after checks."""
+        recorded = {"files": {"tool": "original"}}
+        run = {"exit_code": 0, "timed_out": False}
+        for after in (recorded, {"files": {"tool": "changed"}}, {"error": "missing"}):
+            with self.subTest(after=after), \
+                    patch.object(AUDIT, "checked_provenance", side_effect=[recorded, after]), \
+                    patch.object(AUDIT, "capture", return_value=run) as capture:
+                result = AUDIT.verified_capture(["tool"], Path("/"), Path("out"), Path("err"),
+                                               1, None, None, None, recorded)
+                capture.assert_called_once()
+                self.assertEqual(result["attributed_to_recorded_inputs"], after == recorded)
+
+    def test_provenance_errors_are_retained_as_evidence(self):
+        """Convert unavailable or unpinned inputs into a stable local incomplete-run reason."""
+        for error in (ValueError("changed pin"), FileNotFoundError("missing input"),
+                      subprocess.CalledProcessError(1, ["git"])):
+            with self.subTest(error=error), patch.object(AUDIT, "provenance", side_effect=error):
+                self.assertIn("error", AUDIT.checked_provenance(None, None, None))
 
     def test_default_manifest_matches_published_compose_ports(self):
         """Keep the versioned audit target list aligned with loopback fixture publications."""
@@ -310,7 +394,8 @@ class RunnerTests(unittest.TestCase):
                                       openssl=Path(sys.executable), bash=Path(sys.executable),
                                       ca=root / "ca", output=root / "output", manifest=root / "manifest",
                                       testls_budget=1, comparator_budget=1)
-            with patch.object(AUDIT, "metadata", return_value={}), \
+            with patch.object(AUDIT, "metadata", return_value={"inputs": {}}), \
+                    patch.object(AUDIT, "checked_provenance", return_value={}), \
                     patch.object(AUDIT, "capture", side_effect=KeyboardInterrupt), \
                     self.assertRaises(KeyboardInterrupt):
                 AUDIT.run_audit(args, {"fixtures": [fixture()]})

@@ -20,9 +20,9 @@ ROOT = Path(__file__).resolve().parent.parent
 PROTOCOLS = ("SSLv2", "SSLv3", "TLSv1.0", "TLSv1.1", "TLSv1.2", "TLSv1.3")
 # Public output field identifiers, not external implementation or cipher tables.
 EXTERNAL_PROTOCOLS = dict(zip(
-    ("SSLv2", "SSLv3", "TLS1", "TLS1_1", "TLS1_2", "TLS1_3"), PROTOCOLS))
+    ("SSLv2", "SSLv3", "TLS1", "TLS1_1", "TLS1_2", "TLS1_3"), PROTOCOLS, strict=True))
 CIPHER_PROTOCOLS = dict(zip(
-    ("ssl2", "ssl3", "tls1", "tls1_1", "tls1_2", "tls1_3"), PROTOCOLS))
+    ("ssl2", "ssl3", "tls1", "tls1_1", "tls1_2", "tls1_3"), PROTOCOLS, strict=True))
 EXTERNAL_VULNS = {"heartbleed": "heartbleed", "CCS": "ccs_injection",
                   "ROBOT": "robot", "ticketbleed": "ticketbleed"}
 STATUSES = {"vulnerable", "not vulnerable", "not tested"}
@@ -146,7 +146,9 @@ def external_result(data):
     relevant = set()
     for row in data:
         identifier = row["id"]
-        cipher = re.fullmatch(r"cipher-(ssl2|ssl3|tls1(?:_[123])?)_x[0-9a-fA-F]+", identifier)
+        cipher = re.fullmatch(r"cipher-(ssl2|ssl3|tls1(?:_[123])?)_x([0-9a-fA-F]+)", identifier)
+        if identifier.startswith("cipher-") and not cipher:
+            raise ValueError("unsupported comparator cipher identifier")
         if identifier not in EXTERNAL_PROTOCOLS and identifier not in EXTERNAL_VULNS and not cipher:
             continue
         if identifier in relevant:
@@ -165,15 +167,10 @@ def external_result(data):
         elif cipher:
             # RFC 5246 section 7.4.1.2 defines two-octet TLS suite identifiers.
             # SSLv2 identifiers have three octets; no name-based lookup is used.
-            parts = re.fullmatch(r"0x([0-9a-fA-F]{1,2}),0x([0-9a-fA-F]{1,2})"
-                                 r"(?:,0x([0-9a-fA-F]{1,2}))?", row.get("hexcode", ""))
-            if not parts:
-                raise ValueError("unrecognized comparator suite hexcode")
             version = CIPHER_PROTOCOLS[cipher[1]]
-            octets = [part for part in parts.groups() if part is not None]
-            if len(octets) != (3 if version == "SSLv2" else 2):
+            if len(cipher[2]) != (6 if version == "SSLv2" else 4):
                 raise ValueError("wrong cipher identifier width")
-            number = int("".join(part.zfill(2) for part in octets), 16)
+            number = int(cipher[2], 16)
             suites = result["ciphers"].setdefault(version, [])
             if number in suites:
                 raise ValueError("duplicate comparator suite")
@@ -187,6 +184,9 @@ def external_result(data):
             result["vulnerabilities"][EXTERNAL_VULNS[identifier]] = status
     for suites in result["ciphers"].values():
         suites.sort()
+    # v3.2.5 public output emits this final record even without the pretty footer.
+    if sum(row.get("id") == "scanTime" for row in data) != 1:
+        result["incomplete"].append("comparator completion record missing or duplicated")
     return complete_sections(result)
 
 
@@ -321,8 +321,8 @@ def inspect_tool(command, cwd):
     return result.stdout.strip()
 
 
-def metadata(args, data, checkout):
-    """Require a clean pinned checkout and record exact binary/configuration provenance."""
+def checkout_identity(data, checkout):
+    """Validate the comparator root, release and clean state on every provenance check."""
     top = Path(inspect_tool(["git", "rev-parse", "--show-toplevel"], checkout)).resolve()
     if top != checkout:
         raise ValueError("comparator path must be its checkout root")
@@ -334,21 +334,72 @@ def metadata(args, data, checkout):
         raise ValueError("comparator release tag does not match the pinned revision")
     if inspect_tool(["git", "status", "--porcelain", "--untracked-files=all"], checkout):
         raise ValueError("comparator checkout must be clean (write outputs elsewhere)")
-    for path in (checkout / "testssl.sh", args.ca):
-        if not path.is_file():
-            raise ValueError(f"required file unavailable: {path}")
+    return {"revision": revision, "tag": data["comparator"]["tag"]}
+
+
+def file_identity(path):
+    """Record bytes and inode identity, rejecting a file that changes while being hashed."""
+    path = Path(path).resolve()
+    before = path.stat()
+    checksum = digest(path)
+    after = path.stat()
+    fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+    if any(getattr(before, field) != getattr(after, field) for field in fields):
+        raise ValueError("audit input changed while hashing")
+    return {"path": str(path), "sha256": checksum, "device": after.st_dev,
+            "inode": after.st_ino, "size": after.st_size, "mtime_ns": after.st_mtime_ns,
+            "ctime_ns": after.st_ctime_ns}
+
+
+def provenance(args, data, checkout):
+    """Snapshot the pinned checkout and all scanner/configuration files without inspecting source."""
+    return {"comparator": checkout_identity(data, checkout),
+            "files": {name: file_identity(path) for name, path in (
+                ("testls", args.testls), ("openssl", args.openssl), ("bash", args.bash),
+                ("timeout", args.timeout), ("ca", args.ca), ("manifest", args.manifest),
+                ("comparator_script", checkout / "testssl.sh"))}}
+
+
+def metadata(args, data, checkout):
+    """Require clean pinned inputs and record exact binary/configuration provenance."""
+    inputs = provenance(args, data, checkout)
+    checksums = inputs["files"]
     return {"schema_version": 1, "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "platform": platform.platform(), "repository_revision": inspect_tool(
                 ["git", "rev-parse", "HEAD"], ROOT),
             "repository_dirty": bool(inspect_tool(["git", "status", "--porcelain"], ROOT)),
-            "manifest_sha256": digest(args.manifest), "ca_sha256": digest(args.ca),
-            "comparator": {**data["comparator"], "script_sha256": digest(checkout / "testssl.sh")},
-            "testls": {"path": str(args.testls), "sha256": digest(args.testls),
-                       "version": inspect_tool([str(args.testls), "--version"], ROOT)},
-            "openssl": {"path": str(args.openssl), "sha256": digest(args.openssl),
-                        "version": inspect_tool([str(args.openssl), "version"], ROOT)},
-            "bash": {"path": str(args.bash), "sha256": digest(args.bash),
-                     "version": inspect_tool([str(args.bash), "--version"], ROOT)}}
+            "inputs": inputs, "manifest_sha256": checksums["manifest"]["sha256"],
+            "ca_sha256": checksums["ca"]["sha256"],
+            "comparator": {**data["comparator"], "script_sha256": checksums["comparator_script"]["sha256"]},
+            "timeout": checksums["timeout"],
+            "testls": {"path": str(args.testls), "sha256": checksums["testls"]["sha256"],
+                        "version": inspect_tool([str(args.testls), "--version"], ROOT)},
+            "openssl": {"path": str(args.openssl), "sha256": checksums["openssl"]["sha256"],
+                         "version": inspect_tool([str(args.openssl), "version"], ROOT)},
+            "bash": {"path": str(args.bash), "sha256": checksums["bash"]["sha256"],
+                      "version": inspect_tool([str(args.bash), "--version"], ROOT)}}
+
+
+def checked_provenance(args, data, checkout):
+    """Retain a failed provenance check as local evidence instead of losing earlier measurements."""
+    try:
+        return provenance(args, data, checkout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {"error": "input or comparator checkout unavailable, changed or unpinned"}
+
+
+def verified_capture(command, cwd, stdout, stderr, budget, args, data, checkout, recorded):
+    """Check inputs around each invocation; skip changed inputs and never misattribute output."""
+    before = checked_provenance(args, data, checkout)
+    matches = before == recorded
+    if matches:
+        run = capture(command, cwd, stdout, stderr, budget)
+    else:
+        run = {"command": command, "cwd": str(cwd), "exit_code": None,
+               "timed_out": False, "seconds": 0, "skipped": True}
+    after = checked_provenance(args, data, checkout)
+    return {**run, "provenance_before": before, "provenance_after": after,
+            "attributed_to_recorded_inputs": matches and after == recorded}
 
 
 def measurement(path, parser, run, valid_codes):
@@ -358,12 +409,19 @@ def measurement(path, parser, run, valid_codes):
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
         result = {"protocols": {}, "ciphers": {}, "vulnerabilities": {},
                   "incomplete": ["output absent, malformed or unsupported"]}
-    if run["timed_out"] or run["exit_code"] < 0:
+    if not run.get("attributed_to_recorded_inputs", True):
+        result["incomplete"].append("scanner inputs changed; output not attributed to recorded provenance")
+    if run.get("skipped"):
+        result["incomplete"].append("scanner skipped after provenance mismatch")
+    elif run["timed_out"] or run["exit_code"] < 0:
         result["incomplete"].append("scanner timed out or was terminated")
     elif valid_codes is not None and run["exit_code"] not in valid_codes:
         result["incomplete"].append("scanner failed")
-    # Comparator exit codes are not testls exit codes. Section completeness,
-    # not a nonzero code alone, decides whether its measurements are usable.
+    elif valid_codes is None and run["exit_code"] >= 50:
+        # The v3.2.5 public manual reserves 50–200 and defines fatal errors above 241.
+        result["incomplete"].append("comparator failed or returned an unsupported exit status")
+    # Comparator warning codes 1–49 still require complete sections and scanTime;
+    # reserved/fatal codes never establish complete enumeration from partial JSON.
     return result
 
 
@@ -417,6 +475,7 @@ def run_audit(args, data):
     if checkout == ROOT or ROOT in checkout.parents:
         raise ValueError("comparator checkout must be outside this repository")
     args.testls, args.openssl, args.bash = map(executable, (args.testls, args.openssl, args.bash))
+    args.timeout = executable("timeout")
     args.ca = args.ca.resolve()
     evidence = {"metadata": {**metadata(args, data, checkout), "fixture_count": len(data["fixtures"]),
                              "budgets": {"testls": args.testls_budget,
@@ -430,10 +489,13 @@ def run_audit(args, data):
             name = fixture["name"]
             ours, theirs = commands(fixture, args, checkout)
             theirs += ["--jsonfile", str(output / f"{name}.testssl.json"), f"localhost:{fixture['port']}"]
-            runs = {"testls": capture(ours, ROOT, output / f"{name}.testls.json",
-                                     output / f"{name}.testls.stderr", args.testls_budget)}
-            runs["comparator"] = capture(theirs, checkout, output / f"{name}.testssl.log",
-                                         output / f"{name}.testssl.stderr", args.comparator_budget)
+            recorded = evidence["metadata"]["inputs"]
+            runs = {"testls": verified_capture(ours, ROOT, output / f"{name}.testls.json",
+                                              output / f"{name}.testls.stderr", args.testls_budget,
+                                              args, data, checkout, recorded)}
+            runs["comparator"] = verified_capture(theirs, checkout, output / f"{name}.testssl.log",
+                                                  output / f"{name}.testssl.stderr", args.comparator_budget,
+                                                  args, data, checkout, recorded)
             left = measurement(output / f"{name}.testls.json", testls_result, runs["testls"], {0, 1})
             right = measurement(output / f"{name}.testssl.json", external_result, runs["comparator"], None)
             row = {**compare(fixture, left, right), "fixture": fixture,
