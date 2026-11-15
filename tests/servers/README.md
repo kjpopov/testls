@@ -13,3 +13,7 @@ port 14389), a PostgreSQL server with `SSLRequest`
 `server.pem` (SAN `localhost`, `127.0.0.1`; valid 2026–2126) is signed by the
 test CA in `ca.pem`. The CA key was discarded after signing. `server.key` is a
 test-only key; never use it anywhere else.
+
+For repeatable local comparisons with a pinned, external black-box scanner,
+see [fixture audits](../../docs/fixture-audit.md). The versioned fixture
+manifest is `audit.json`; the runner never alters or starts these services.

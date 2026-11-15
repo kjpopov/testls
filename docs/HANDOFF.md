@@ -141,7 +141,28 @@ if `gh` is allowed); update it when a session ends.
 
 ## Next work
 
-Next free decision: #102 (#99 CCS, #100 Ticketbleed in PR #158, #101 ROBOT). Recheck
+- Repeatable local fixture audit (2026-11-15): maintainer selected local-only
+  automation and review before issue filing (decision #102). Branch
+  `feat/local-fixture-audit-runner` is based on `origin/main` at `2f61b5c`;
+  original audit docs PR #164 remains separate. CI on #164 passed; CodeRabbit
+  skipped its docs-only review. Added `scripts/audit-fixtures.py`, loopback
+  fixture manifest `tests/servers/audit.json`, synthetic adapter/process tests
+  and `docs/fixture-audit.md`. Existing binary/tool paths are explicit; runner
+  verifies the comparator pin, bounds sequential scans, preserves incomplete
+  evidence and emits JSON/Markdown plus unconfirmed issue drafts. No tool
+  installation, container/DNS changes, CI workflow or automatic GitHub writes.
+  Original temporary audit files are gone and no fixtures are currently
+  running; no live re-audit performed. Validation: all 25 synthetic adapter,
+  command/provenance, process-timeout and report tests pass; plan mode works
+  without installed tools. Docstrings, diff/fmt checks, OCSP fixtures and
+   workspace Clippy (`-D warnings`), workspace tests and MSRV (`rustup run 1.97
+   cargo check --workspace --locked`) pass. Container tests remain ignored:
+   no live fixtures were started for this implementation.
+  `cargo deny check` is blocked by the pre-existing `rustix 1.1.5` advisory
+  RUSTSEC-2026-0486 (fixed in 1.1.6); no dependency change in this work.
+  Existing `handoff-local` stash untouched; no merge authorized.
+
+Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
