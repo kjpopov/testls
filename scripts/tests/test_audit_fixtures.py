@@ -133,13 +133,18 @@ class AdapterTests(unittest.TestCase):
                 with patch.object(AUDIT, "MAX_JSON", 64), self.assertRaises(ValueError):
                     AUDIT.load_json(path)
 
-    def test_comparator_nonzero_exit_can_have_complete_sections(self):
-        """Do not apply testls's exit contract to another scanner's dependency warnings."""
+    def test_comparator_nonzero_exit_retains_but_does_not_confirm_sections(self):
+        """Treat every ambiguous nonzero status as incomplete even with a completion record."""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "external.json"
             path.write_text(json.dumps(sample_external()))
-            run = {"exit_code": 8, "timed_out": False}
-            self.assertFalse(AUDIT.measurement(path, AUDIT.external_result, run, None)["incomplete"])
+            for code in (0, 1, 8, 49):
+                with self.subTest(code=code):
+                    result = AUDIT.measurement(path, AUDIT.external_result,
+                                               {"exit_code": code, "timed_out": False}, None)
+                    self.assertEqual(result["ciphers"]["TLSv1.2"], [0x002f])
+                    self.assertEqual(bool(result["incomplete"]), code != 0)
+            run = {"exit_code": 0, "timed_out": False}
             run["timed_out"] = True
             self.assertTrue(AUDIT.measurement(path, AUDIT.external_result, run, None)["incomplete"])
 
@@ -236,6 +241,32 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual((root / "out").read_text(), "{}\n")
             self.assertIn("warning", (root / "err").read_text())
 
+    def test_capture_ignores_ambient_scanner_options_and_startup_hooks(self):
+        """Only pass the documented environment, keeping revocation and inherited overrides disabled."""
+        ambient = {"PHONE_OUT": "true", "FNAME": "remote-targets", "OPENSSL_CONF": "override",
+                   "http_proxy": "http://example.invalid", "BASH_ENV": "startup-hook",
+                   "SHELLOPTS": "xtrace", "AUDIT_TEST_SECRET": "do-not-pass"}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, ambient):
+            root = Path(directory)
+            result = AUDIT.capture([sys.executable, "-c", "import os,json;print(json.dumps(dict(os.environ)))"],
+                                   root, root / "out", root / "err", 2)
+            environment = json.loads((root / "out").read_text())
+            expected = AUDIT.child_environment()
+            self.assertEqual({key: environment[key] for key in expected}, expected)
+            # CoreFoundation may add its own encoding variable after Python starts on macOS.
+            self.assertLessEqual(set(environment) - set(expected), {"__CF_USER_TEXT_ENCODING"})
+            self.assertEqual(result["environment"], expected)
+            self.assertEqual(environment["PHONE_OUT"], "false")
+            self.assertFalse((set(ambient) - {"PHONE_OUT"}) & set(environment))
+
+    def test_metadata_commands_use_the_same_controlled_environment(self):
+        """Keep version and checkout inspection from inheriting external configuration hooks."""
+        with patch.dict(os.environ, {"PHONE_OUT": "true", "BASH_ENV": "hook"}), \
+                patch.object(AUDIT.subprocess, "run", return_value=subprocess.CompletedProcess(
+                    ["tool"], 0, stdout="version\n")) as run:
+            self.assertEqual(AUDIT.inspect_tool(["tool"], Path("/")), "version")
+            self.assertEqual(run.call_args.kwargs["env"], AUDIT.child_environment())
+
     @unittest.skipUnless(os.name == "posix", "Unix process groups required")
     def test_timeout_cleans_owned_process_group(self):
         """Terminate a scanner that ignores SIGTERM within the bounded grace period."""
@@ -264,16 +295,18 @@ class RunnerTests(unittest.TestCase):
                                       bash=Path(sys.executable), ca=root / "ca", output=root / "output",
                                       manifest=root / "manifest", testls_budget=10, comparator_budget=10)
             with patch.object(AUDIT, "metadata", return_value={"inputs": {"synthetic": True}}), \
-                    patch.object(AUDIT, "checked_provenance", return_value={"synthetic": True}):
+                    patch.object(AUDIT, "checked_provenance", return_value={"synthetic": True}), \
+                    patch.object(AUDIT, "executable", side_effect=lambda path: Path(sys.executable)
+                                 if str(path) == "timeout" else Path(path).resolve()):
                 self.assertEqual(AUDIT.run_audit(args, {"fixtures": [fixture()]}), 0)
+                with self.assertRaises(FileExistsError), patch.object(AUDIT, "metadata", return_value={}):
+                    AUDIT.run_audit(args, {"fixtures": [fixture()]})
             result = json.loads((args.output / "summary.json").read_text())
             self.assertTrue(result["complete_run"])
             self.assertEqual(result["results"][0]["status"], "agree")
             self.assertTrue((args.output / "summary.md").is_file())
             self.assertIn("Run state: completed", (args.output / "summary.md").read_text())
             self.assertEqual(args.output.stat().st_mode & 0o077, 0)
-            with self.assertRaises(FileExistsError), patch.object(AUDIT, "metadata", return_value={}):
-                AUDIT.run_audit(args, {"fixtures": [fixture()]})
 
     def test_provenance_rejects_wrong_pin(self):
         """Fail before scanner invocation when an external checkout differs from the manifest."""
@@ -300,7 +333,8 @@ class RunnerTests(unittest.TestCase):
             ca.write_text("synthetic CA\n")
             config.write_text("{}\n")
             args = argparse.Namespace(testls=Path(sys.executable), openssl=Path(sys.executable),
-                                      bash=Path(sys.executable), timeout=Path(sys.executable), ca=ca, manifest=config)
+                                      bash=Path(sys.executable), timeout=Path(sys.executable), ca=ca, manifest=config,
+                                      manifest_sha256=AUDIT.digest(config))
             replies = [str(external), "a" * 40, "a" * 40, "", "b" * 40, "", "testls fake",
                        "OpenSSL fake", "bash fake"]
             with patch.object(AUDIT, "inspect_tool", side_effect=replies):
@@ -309,6 +343,38 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(result["ca_sha256"], AUDIT.digest(ca))
             self.assertEqual(result["testls"]["sha256"], AUDIT.digest(sys.executable))
             self.assertFalse(result["repository_dirty"])
+
+    def test_manifest_snapshot_is_parsed_and_hashed_before_metadata(self):
+        """Reject replacement after parsing, rather than attributing old targets to a new hash."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "manifest.json"
+            original = {"schema_version": 1, "comparator": {"tag": "v3.2.5", "revision": "a" * 40},
+                        "fixtures": [fixture()]}
+            body = json.dumps(original).encode()
+            config.write_bytes(body)
+
+            def change_before_metadata(args, data):
+                """Replace the file after main parses it, simulating the reported race."""
+                self.assertEqual(data, original)
+                self.assertEqual(args.manifest_sha256, AUDIT.hashlib.sha256(body).hexdigest())
+                changed = copy.deepcopy(original)
+                changed["fixtures"][0]["port"] = 14437
+                config.write_text(json.dumps(changed))
+                inputs = {"files": {"manifest": AUDIT.file_identity(config)}}
+                with patch.object(AUDIT, "provenance", return_value=inputs):
+                    return AUDIT.metadata(args, data, root)
+
+            argv = [str(SCRIPT), "run", "--manifest", str(config), "--testssl-dir", str(root),
+                    "--output", str(root / "output")]
+            with patch.object(sys, "argv", argv), \
+                    patch.object(AUDIT, "run_audit", side_effect=change_before_metadata), \
+                    patch.object(AUDIT, "capture") as capture, \
+                    patch.object(sys, "stderr") as error:
+                self.assertEqual(AUDIT.main(), 2)
+                capture.assert_not_called()
+                self.assertIn("manifest changed", str(error.write.call_args_list))
+            self.assertFalse((root / "output").exists())
 
     def test_file_identity_detects_replacement_and_during_hash_changes(self):
         """Reject changing bytes or replaced inodes, even when the replacement has identical bytes."""
@@ -396,6 +462,7 @@ class RunnerTests(unittest.TestCase):
                                       testls_budget=1, comparator_budget=1)
             with patch.object(AUDIT, "metadata", return_value={"inputs": {}}), \
                     patch.object(AUDIT, "checked_provenance", return_value={}), \
+                    patch.object(AUDIT, "executable", return_value=Path(sys.executable)), \
                     patch.object(AUDIT, "capture", side_effect=KeyboardInterrupt), \
                     self.assertRaises(KeyboardInterrupt):
                 AUDIT.run_audit(args, {"fixtures": [fixture()]})

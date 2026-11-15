@@ -203,8 +203,20 @@ if `gh` is allowed); update it when a session ends.
   inputs and marking output unattributed. All 31 tests pass. No external
   implementation/tables/client data inspected or copied. Temporary listener
   smoke verified capture passes with matching provenance and both configured
-  TLS 1.2 suites; listener is closed. These tests do not establish a real
-  ROBOT oracle or full-fixture parity. Review-fix diff/fmt and docstrings pass.
+   TLS 1.2 suites; listener is closed. These tests do not establish a real
+   ROBOT oracle or full-fixture parity. Review-fix diff/fmt and docstrings pass.
+   Next round: all 27 checks passed at `c05a860`, but CodeRabbit requested
+   further fixes. Bound manifest parsing/hash to one byte snapshot and reject
+   changed bytes before scans; synthetic orchestration now mocks `timeout`
+   discovery. macOS examples resolve Homebrew's keg-only OpenSSL prefix.
+   Scanner/metadata environments allow only PATH, fixed locale/time-zone and
+   `PHONE_OUT=false`; inherited options, proxies and shell hooks are excluded
+   and the exact environment is recorded. Every nonzero comparator exit is
+   incomplete, even with a completion record; partial evidence is retained.
+   All 34 tests, diff/fmt and docstrings pass. An additional pinned-comparator
+   smoke with inherited `PHONE_OUT=true` and `BASH_ENV` passes in the controlled
+   environment with matching provenance and both suites; its listener is closed.
+   An empty-PATH suite run was permission-denied, not claimed as verified.
   `cargo deny check` is locally blocked by pre-existing `rustix 1.1.5`
   RUSTSEC-2026-0486 (fixed in 1.1.6); no dependency change or issue creation.
   Human security review and merge authorization remain pending for #165;

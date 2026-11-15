@@ -39,14 +39,24 @@ def unique_object(pairs):
     return result
 
 
-def load_json(path):
-    """Read bounded UTF-8 JSON with duplicate-key and non-finite-number rejection."""
+def json_bytes(path):
+    """Read one bounded JSON snapshot for parsing and provenance hashing."""
     with Path(path).open("rb") as source:
         body = source.read(MAX_JSON + 1)
     if len(body) > MAX_JSON:
         raise ValueError("JSON exceeds 16 MiB")
+    return body
+
+
+def parse_json(body):
+    """Parse a JSON snapshot with duplicate-key and non-finite-number rejection."""
     return json.loads(body, object_pairs_hook=unique_object,
                       parse_constant=reject_constant)
+
+
+def load_json(path):
+    """Load bounded JSON using the same strict decoder as manifest snapshots."""
+    return parse_json(json_bytes(path))
 
 
 def reject_constant(value):
@@ -54,9 +64,9 @@ def reject_constant(value):
     raise ValueError(f"nonstandard JSON number: {value}")
 
 
-def manifest(path, selected):
+def manifest(path, selected, *, body=None):
     """Validate a loopback-only fixture manifest and select unique known names."""
-    data = load_json(path)
+    data = load_json(path) if body is None else parse_json(body)
     if (not isinstance(data, dict) or type(data.get("schema_version")) is not int
             or data["schema_version"] != 1):
         raise ValueError("unsupported audit manifest schema")
@@ -295,12 +305,19 @@ def terminate(process):
     process.wait()
 
 
+def child_environment():
+    """Allow only tool discovery and fixed locale settings, disabling external revocation queries."""
+    return {"PATH": os.environ.get("PATH", os.defpath), "LC_ALL": "C", "LANG": "C",
+            "TZ": "UTC", "PHONE_OUT": "false"}
+
+
 def capture(command, cwd, stdout, stderr, budget):
     """Capture separate private outputs and bound runtime, including interruption cleanup."""
     started = time.monotonic()
+    environment = child_environment()
     with stdout.open("xb") as out, stderr.open("xb") as err:
         process = subprocess.Popen(command, cwd=cwd, stdout=out, stderr=err,
-                                   start_new_session=True)
+                                   start_new_session=True, env=environment)
         timed_out = False
         try:
             process.wait(timeout=budget)
@@ -309,13 +326,14 @@ def capture(command, cwd, stdout, stderr, budget):
         finally:
             terminate(process)
     return {"command": command, "cwd": str(cwd), "exit_code": process.returncode,
-            "timed_out": timed_out, "seconds": round(time.monotonic() - started, 3)}
+            "timed_out": timed_out, "seconds": round(time.monotonic() - started, 3),
+            "environment": environment}
 
 
 def inspect_tool(command, cwd):
     """Capture small version/control output with a fixed deadline."""
     result = subprocess.run(command, cwd=cwd, check=True, capture_output=True,
-                            timeout=10, text=True)
+                            timeout=10, text=True, env=child_environment())
     if len(result.stdout) > 8192:
         raise ValueError("unexpectedly large tool metadata")
     return result.stdout.strip()
@@ -353,7 +371,7 @@ def file_identity(path):
 
 def provenance(args, data, checkout):
     """Snapshot the pinned checkout and all scanner/configuration files without inspecting source."""
-    return {"comparator": checkout_identity(data, checkout),
+    return {"comparator": checkout_identity(data, checkout), "environment": child_environment(),
             "files": {name: file_identity(path) for name, path in (
                 ("testls", args.testls), ("openssl", args.openssl), ("bash", args.bash),
                 ("timeout", args.timeout), ("ca", args.ca), ("manifest", args.manifest),
@@ -364,11 +382,13 @@ def metadata(args, data, checkout):
     """Require clean pinned inputs and record exact binary/configuration provenance."""
     inputs = provenance(args, data, checkout)
     checksums = inputs["files"]
+    if checksums["manifest"]["sha256"] != args.manifest_sha256:
+        raise ValueError("manifest changed after its configuration was read")
     return {"schema_version": 1, "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "platform": platform.platform(), "repository_revision": inspect_tool(
                 ["git", "rev-parse", "HEAD"], ROOT),
             "repository_dirty": bool(inspect_tool(["git", "status", "--porcelain"], ROOT)),
-            "inputs": inputs, "manifest_sha256": checksums["manifest"]["sha256"],
+            "inputs": inputs, "manifest_sha256": args.manifest_sha256,
             "ca_sha256": checksums["ca"]["sha256"],
             "comparator": {**data["comparator"], "script_sha256": checksums["comparator_script"]["sha256"]},
             "timeout": checksums["timeout"],
@@ -417,11 +437,10 @@ def measurement(path, parser, run, valid_codes):
         result["incomplete"].append("scanner timed out or was terminated")
     elif valid_codes is not None and run["exit_code"] not in valid_codes:
         result["incomplete"].append("scanner failed")
-    elif valid_codes is None and run["exit_code"] >= 50:
-        # The v3.2.5 public manual reserves 50–200 and defines fatal errors above 241.
-        result["incomplete"].append("comparator failed or returned an unsupported exit status")
-    # Comparator warning codes 1–49 still require complete sections and scanTime;
-    # reserved/fatal codes never establish complete enumeration from partial JSON.
+    elif valid_codes is None and run["exit_code"] != 0:
+        # The public manual defines nonzero codes as errors/ambiguities, not completeness evidence.
+        result["incomplete"].append("comparator returned a nonzero exit status; enumeration unconfirmed")
+    # A completion record cannot establish complete enumeration after any nonzero exit.
     return result
 
 
@@ -536,7 +555,9 @@ def main():
     args = parser.parse_args()
     previous_umask = os.umask(0o077)
     try:
-        data = manifest(args.manifest, args.fixture)
+        body = json_bytes(args.manifest)
+        args.manifest_sha256 = hashlib.sha256(body).hexdigest()
+        data = manifest(args.manifest, args.fixture, body=body)
         if args.mode == "plan":
             planned = []
             for item in data["fixtures"]:

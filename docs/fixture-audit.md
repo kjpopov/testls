@@ -57,17 +57,18 @@ requiring tools/containers to exist:
 
 ```sh
 python3 scripts/audit-fixtures.py plan \
-  --testssl-dir "$HOME/testssl-audit" --openssl /opt/homebrew/bin/openssl
+  --testssl-dir "$HOME/testssl-audit" --openssl "$(brew --prefix openssl@3)/bin/openssl"
 ```
 
 Run every fixture sequentially, using the already-built CLI:
 
 ```sh
 python3 scripts/audit-fixtures.py run \
-  --testssl-dir "$HOME/testssl-audit" --openssl /opt/homebrew/bin/openssl \
+  --testssl-dir "$HOME/testssl-audit" --openssl "$(brew --prefix openssl@3)/bin/openssl" \
   --output target/fixture-audits/run-001
 ```
 
+These macOS examples resolve Homebrew's keg-only `openssl@3` installation.
 On Linux, use the actual OpenSSL path, for example `/usr/bin/openssl`.
 Use `--testls /path/to/testls` to select another existing CLI. A new output
 directory is required: previous evidence is never overwritten. Select a
@@ -75,7 +76,7 @@ subset with repeated `--fixture` options:
 
 ```sh
 python3 scripts/audit-fixtures.py run \
-  --testssl-dir "$HOME/testssl-audit" --openssl /opt/homebrew/bin/openssl \
+  --testssl-dir "$HOME/testssl-audit" --openssl "$(brew --prefix openssl@3)/bin/openssl" \
   --fixture modern --fixture mysql --output target/fixture-audits/run-002
 ```
 
@@ -88,6 +89,10 @@ that additional loopback request is acceptable. Targets cannot be changed to
 remote hosts. Both tools use loopback, `localhost` SNI and the fixture CA.
 The testls default profile plus explicit `--intrusive` covers the intrusive probes without external
 revocation fetches. Comparator DNS, grading and client simulation are excluded.
+Scanner and metadata processes receive only `PATH` plus fixed locale/time-zone
+settings and `PHONE_OUT=false`. Ambient comparator options, proxy settings,
+OpenSSL overrides and shell startup hooks are not inherited. The exact child
+environment is recorded; this is scope control, not an operating-system sandbox.
 No independent handshake containing ephemeral secrets is captured automatically.
 
 Per-process budgets default to 600 seconds for testls and 900 seconds for the
@@ -108,6 +113,8 @@ under umask 077):
   identities and comparator pin/clean state are checked before and after every
   scanner invocation; changed inputs are skipped or marked incomplete, and
   their output is not attributed to the initially recorded tool versions.
+  Manifest parsing and hashing use the same byte snapshot; changed manifest
+  bytes are rejected before scanning and remain checked around each invocation.
 - `summary.md`: per-fixture result, candidate differences, incomplete sections
   and explicit vulnerability-scope notes.
 - `NAME.testls.json`, `NAME.testssl.json`: original local scanner outputs.
@@ -127,11 +134,12 @@ Runner exit codes are separate from the scanner's finding threshold:
 | 1 | Candidate disagreement requiring review |
 | 2 | Incomplete, interrupted or invalid run; may also contain disagreements |
 
-testls exit 1 is valid measurement output, not a process error. Comparator
-warning codes 1–49 require usable protocol/cipher sections and exactly one
-final `scanTime` record. Reserved/fatal codes (50 and above), missing completion
-records, failed sections and malformed output remain incomplete even when
-partial cipher rows exist. JSON shape, duplicate measurements and numeric suite
+testls exit 1 is valid measurement output, not a process error. Every nonzero
+comparator exit remains incomplete: even warning codes 1–49 and a final
+`scanTime` record cannot confirm complete enumeration. Parseable measurements
+are retained for review, not discarded or treated as a successful negative.
+Missing completion records, failed sections and malformed output also remain
+incomplete. JSON shape, duplicate measurements and numeric suite
 identifiers are checked; unfamiliar output is inconclusive. Only the pinned
 flat JSON format is supported: suite IDs come from `cipher-..._xHHHH` records
 (six hex digits for SSLv2), not an optional `hexcode` field. This public output
