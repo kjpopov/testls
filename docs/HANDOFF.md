@@ -266,7 +266,25 @@ if `gh` is allowed); update it when a session ends.
   MSRV and cargo-deny pass. Full sequential container integration: 17/17 pass.
   Stopped all 12 previously stopped fixtures started for this task; no fixture
   configuration changes. Human security review required before merge; no
-  merge authorization for this branch. CI/CodeRabbit review pending.
+  merge authorization for this branch. PR #168 at `f7b3de1`: all CI and
+  Codecov checks pass; patch coverage 100%, project coverage 97.77%.
+  CodeRabbit skipped because the OSS review quota was exhausted (its note
+  reported a 12-minute reset). No substantive review or approval yet; PR
+  remains unmerged.
+  Maintainer supplied an external agent review: no blockers. Review follow-up
+  names the empty Certificate handshake (not a record), explains CKE capacity
+  and ServerHello offsets, and rejects empty certificate types earlier.
+  Keep independent expected wire bytes in tests, rather than sharing the
+  production constant. RFC 2246 §7.4.4 explicitly requires the TLS 1.0
+  authority vector minimum of three bytes; retain that version check.
+  Expanded the request-change test to cover appearance, disappearance,
+  content changes and a round-boundary change, plus no retry connections.
+  Document this existing fail-inconclusive policy in usage and decision #101;
+  it follows the no-retry bound of #89. All 13 ROBOT tests, workspace tests,
+  Clippy (`-D warnings`), MSRV, fmt, OCSP fixtures and cargo-deny pass.
+  Full sequential container rerun: 17/17 pass; stopped all 12 task-started
+  fixtures again, without configuration/DNS changes. Request CodeRabbit
+  after publishing all review fixes together; no merge authorization.
 
 Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.

@@ -19,6 +19,9 @@ use crate::{ProbeError, Transport, ccs::read_record, hello::client_hello};
 /// Upper bound on the plaintext server flight.
 const MAX_FLIGHT: usize = 256 * 1024;
 
+/// Empty client Certificate handshake message (RFC 2246/4346/5246 §7.4.6).
+const EMPTY_CERTIFICATE_HANDSHAKE: [u8; 7] = [11, 0, 0, 3, 0, 0, 0];
+
 /// Comparable static-RSA flight, including the optional client-authentication policy.
 #[derive(Debug, PartialEq, Eq)]
 struct RsaFlight {
@@ -32,6 +35,8 @@ struct RsaFlight {
 ///
 /// Only a fatal alert differing from the valid-padding control is positive.
 /// Equal alerts, closes, timeouts and protocol errors are inconclusive.
+/// Changes in the certificate or client-authentication request stop the probe
+/// without retrying; different handshake policies cannot be oracle evidence.
 ///
 /// # Errors
 /// Returns an error when no reproducible alert difference is observed or a
@@ -100,11 +105,12 @@ async fn attempt(
         let encrypted = ciphertext(&received.leaf, version, kind)?;
         let len = u16::try_from(encrypted.len())
             .map_err(|_| ProbeError::Unexpected("RSA key too large"))?;
-        let mut body = Vec::with_capacity(encrypted.len() + 13);
+        // Four handshake-header bytes and two ciphertext-length bytes for CKE.
+        let mut body = Vec::with_capacity(encrypted.len() + 6 + EMPTY_CERTIFICATE_HANDSHAKE.len());
         if received.certificate_request.is_some() {
             // RFC 2246/4346/5246 §7.4.6–7: no credentials; empty Certificate
             // immediately precedes ClientKeyExchange, in the same record.
-            body.extend_from_slice(&[11, 0, 0, 3, 0, 0, 0]);
+            body.extend_from_slice(&EMPTY_CERTIFICATE_HANDSHAKE);
         }
         body.extend_from_slice(&[16, 0]);
         body.extend_from_slice(&(len + 2).to_be_bytes());
@@ -221,12 +227,12 @@ fn validate_certificate_request(
 ) -> Result<(), ProbeError> {
     let error = || ProbeError::Unexpected("invalid RSA certificate request");
     let (&types_len, rest) = body.split_first().ok_or_else(error)?;
-    let (_, rest) = rest
-        .split_at_checked(usize::from(types_len))
-        .ok_or_else(error)?;
     if types_len == 0 {
         return Err(error());
     }
+    let (_, rest) = rest
+        .split_at_checked(usize::from(types_len))
+        .ok_or_else(error)?;
     body = rest;
     if version == ProtocolVersion::TLS12 {
         let algorithms = request_vector(&mut body)?;
@@ -489,6 +495,7 @@ mod tests {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 read_record(&mut stream).await.unwrap();
                 let mut h = server_handshakes(include_bytes!("testdata/rsa1024.cert.der"));
+                // ServerHello.version follows its four-byte handshake header.
                 h[4..6].copy_from_slice(&version.0.to_be_bytes());
                 if requested {
                     h.splice(h.len() - 4..h.len() - 4, certificate_request(version));
@@ -501,6 +508,7 @@ mod tests {
                 let (typ, received_version, cke) = read_record(&mut stream).await.unwrap();
                 assert_eq!((typ, received_version), (22, version));
                 let cke = if requested {
+                    // Independent RFC encoding, not the production constant.
                     assert_eq!(cke[..7], [11, 0, 0, 3, 0, 0, 0]);
                     &cke[7..]
                 } else {
@@ -715,24 +723,31 @@ mod tests {
         ));
     }
 
-    /// Changes in request presence or contents cannot become padding-oracle evidence.
+    /// Presence/content changes, even between rounds, abort without retries or evidence.
     #[tokio::test]
     async fn changing_certificate_request_is_inconclusive() {
         let request = certificate_request(ProtocolVersion::TLS12);
         let mut changed = request.clone();
         changed[5] = 2; // A different, well-framed certificate-type list.
-        for next in [None, Some(changed)] {
+        let requested = Some(request);
+        for (first, next, change_at) in [
+            (requested.clone(), None, 1),
+            (None, requested.clone(), 1),
+            (requested.clone(), Some(changed), 1),
+            (requested, None, 4),
+        ] {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let mut transport = Transport::new(listener.local_addr().unwrap());
             transport.read_timeout = Duration::from_secs(2);
-            let first = request.clone();
             let peer = tokio::spawn(async move {
-                for (request, alert) in [(Some(first), 20), (next, 40)] {
+                for index in 0..=change_at {
+                    let request = if index == change_at { &next } else { &first };
+                    let alert = if index == 1 { 40 } else { 20 };
                     let (mut stream, _) = listener.accept().await.unwrap();
                     read_record(&mut stream).await.unwrap();
                     let mut h = server_handshakes(include_bytes!("testdata/rsa1024.cert.der"));
                     if let Some(request) = request {
-                        h.splice(h.len() - 4..h.len() - 4, request);
+                        h.splice(h.len() - 4..h.len() - 4, request.iter().copied());
                     }
                     stream.write_all(&record(22, &h)).await.unwrap();
                     for _ in 0..3 {
@@ -740,6 +755,12 @@ mod tests {
                     }
                     stream.write_all(&record(21, &[2, alert])).await.unwrap();
                 }
+                // A changed policy ends the probe; no retry may connect here.
+                assert!(
+                    timeout(Duration::from_millis(100), listener.accept())
+                        .await
+                        .is_err()
+                );
             });
             let result = probe_robot(&transport, ProtocolVersion::TLS12, 0x2f, None).await;
             peer.await.unwrap();

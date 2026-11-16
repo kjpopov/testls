@@ -128,6 +128,8 @@ variants and the selected suites are covered; timing oracles are not tested.
 An optional client-certificate request is validated before sending an empty
 certificate; this probe never uses client credentials. Required-client-auth
 refusal and changes to the request between attempts remain **not tested**.
+A changed certificate or request stops that suite's probe without retries;
+alert differences from changing authentication policies are not oracle evidence.
 
 A correlated heartbeat response with an extra payload byte confirms
 `vuln.heartbleed` (critical). Disclosure is limited to one byte beyond the
