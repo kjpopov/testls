@@ -178,7 +178,60 @@ if `gh` is allowed); update it when a session ends.
   preflight; no external vulnerability/cipher parity claimed there. No scans
   remain running; owned SSH tunnels are closed and temporary hosts restored.
 
-Next free decision: #102 (#99 CCS, #100 Ticketbleed in PR #158, #101 ROBOT). Recheck
+- PR #164 merged on maintainer request (2026-11-15) at `72b8e88`: reviewed
+  all three documentation files, all 26 checks passed, CodeRabbit approved
+  head `c5244d2`, and no review threads or actionable comments remained.
+  Updated `origin/main` is merged into #165 without rewriting reviewed commits.
+
+- Repeatable local fixture audit (2026-11-15, PR #165): maintainer selected
+  local-only automation and review before issue filing (decision #102).
+  Added `scripts/audit-fixtures.py`, manifest `tests/servers/audit.json`,
+  synthetic adapter/process tests and `docs/fixture-audit.md`. Runner verifies
+  the comparator pin, bounds sequential scans, preserves incomplete evidence
+  and emits JSON/Markdown plus unconfirmed issue drafts. No automatic tool
+  installation, container/DNS changes, CI workflow or GitHub writes.
+  Existing fixtures are stopped; no full 13-fixture re-audit performed.
+  Initial validation: 25 tests, docstrings, diff/fmt checks, OCSP fixtures,
+  workspace Clippy (`-D warnings`), workspace tests and MSRV pass. Container
+  tests remain ignored locally. All 27 initial-head CI checks passed, but
+  CodeRabbit requested fixes. Review fixes: documented PATH `timeout` and the
+  direct-TLS plain OPTIONS request to loopback port 80; verified the pinned
+  public cipher-ID-only JSON on an authorized disposable loopback TLS listener;
+  fixed the adapter, required a completion record and rejected reserved/fatal
+  exit codes with partial JSON; checked input identities and comparator
+  revision/clean state around every scanner invocation, skipping changed
+  inputs and marking output unattributed. All 31 tests pass. No external
+  implementation/tables/client data inspected or copied. Temporary listener
+  smoke verified capture passes with matching provenance and both configured
+   TLS 1.2 suites; listener is closed. These tests do not establish a real
+   ROBOT oracle or full-fixture parity. Review-fix diff/fmt and docstrings pass.
+   Next round: all 27 checks passed at `c05a860`, but CodeRabbit requested
+   further fixes. Bound manifest parsing/hash to one byte snapshot and reject
+   changed bytes before scans; synthetic orchestration now mocks `timeout`
+   discovery. macOS examples resolve Homebrew's keg-only OpenSSL prefix.
+   Scanner/metadata environments allow only PATH, fixed locale/time-zone and
+   `PHONE_OUT=false`; inherited options, proxies and shell hooks are excluded
+   and the exact environment is recorded. Every nonzero comparator exit is
+   incomplete, even with a completion record; partial evidence is retained.
+   All 34 tests, diff/fmt and docstrings pass. An additional pinned-comparator
+   smoke with inherited `PHONE_OUT=true` and `BASH_ENV` passes in the controlled
+   environment with matching provenance and both suites; its listener is closed.
+   An empty-PATH suite run was permission-denied, not claimed as verified.
+   Latest full review approved `fe3855e` with all 27 checks passing, but its
+   outside-diff body flagged one valid completion gap. A warning `scanTime`
+   could be accepted after exit 0. Regression reproduces the false completion;
+   adapter now requires exactly one INFO record with elapsed whole seconds,
+   retaining suites but marking warnings/malformed records incomplete.
+   This successful shape is confirmed by the earlier authorized public output;
+   no comparator implementation was inspected. All 35 tests, diff/fmt and
+   docstrings pass; both earlier successful comparator captures still parse
+   as complete with their two suites. Fresh CI/review pending after the fix.
+  `cargo deny check` is locally blocked by pre-existing `rustix 1.1.5`
+  RUSTSEC-2026-0486 (fixed in 1.1.6); no dependency change or issue creation.
+  Human security review and merge authorization remain pending for #165;
+  existing `handoff-local` stash is untouched.
+
+Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "comparator": {
+    "tag": "v3.2.5",
+    "revision": "4f17be931a9d60f3f987975aea8221f1a8eaf7aa"
+  },
+  "fixtures": [
+    {"name": "modern", "port": 14434, "starttls": null, "protocols": ["TLSv1.2", "TLSv1.3"]},
+    {"name": "legacy", "port": 14433, "starttls": null, "protocols": ["TLSv1.0", "TLSv1.1", "TLSv1.2"]},
+    {"name": "heartbleed", "port": 14435, "starttls": null, "protocols": ["TLSv1.2"], "vulnerabilities": {"heartbleed": "vulnerable", "ccs_injection": "vulnerable"}},
+    {"name": "heartbleed-patched", "port": 14436, "starttls": null, "protocols": ["TLSv1.2"], "vulnerabilities": {"heartbleed": "no_positive", "ccs_injection": "vulnerable"}},
+    {"name": "ccs-patched", "port": 14437, "starttls": null, "protocols": ["TLSv1.2"], "vulnerabilities": {"heartbleed": "no_positive", "ccs_injection": "no_positive"}},
+    {"name": "smtp", "port": 14425, "starttls": "smtp", "protocols": ["TLSv1.2", "TLSv1.3"]},
+    {"name": "imap", "port": 14143, "starttls": "imap", "protocols": ["TLSv1.2", "TLSv1.3"]},
+    {"name": "pop3", "port": 14110, "starttls": "pop3", "protocols": ["TLSv1.2", "TLSv1.3"]},
+    {"name": "ftp", "port": 14021, "starttls": "ftp", "protocols": ["TLSv1.2", "TLSv1.3"]},
+    {"name": "xmpp", "port": 15222, "starttls": "xmpp", "protocols": ["TLSv1.2", "TLSv1.3"]},
+    {"name": "ldap", "port": 14389, "starttls": "ldap", "protocols": ["TLSv1.2", "TLSv1.3"]},
+    {"name": "postgres", "port": 15432, "starttls": "postgres", "protocols": ["TLSv1.2", "TLSv1.3"]},
+    {"name": "mysql", "port": 13306, "starttls": "mysql", "protocols": ["TLSv1.2", "TLSv1.3"]}
+  ]
+}
