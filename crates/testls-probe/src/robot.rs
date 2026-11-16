@@ -273,7 +273,8 @@ fn name_container<'a>(body: &mut &'a [u8], tag: Tag) -> Result<&'a [u8], ProbeEr
 /// Requires complete Name/RDN/attribute content (RFC 5280 §4.1.2.4).
 ///
 /// `X509Name`'s parser can discard unread container content; check each level
-/// before using it for the existing semantic validation. No recursion needed.
+/// and require a universal primitive OID attribute type before semantic validation.
+/// No recursion needed.
 fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
     let error = || ProbeError::Unexpected("invalid RSA certificate request");
     let mut rdns = name_container(&mut name, Tag::Sequence)?;
@@ -287,6 +288,14 @@ fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
         }
         while !attributes.is_empty() {
             let attribute = name_container(&mut attributes, Tag::Sequence)?;
+            // Oid::from_der does not validate its tag in the locked dependency.
+            let (_, oid) = Any::from_der(attribute).map_err(|_| error())?;
+            if oid.header.class() != Class::Universal
+                || oid.header.tag() != Tag::Oid
+                || oid.header.is_constructed()
+            {
+                return Err(error());
+            }
             let (value, _) = Oid::from_der(attribute).map_err(|_| error())?;
             let (rest, _) = Any::from_der(value).map_err(|_| error())?;
             if !rest.is_empty() {
@@ -727,7 +736,7 @@ mod tests {
         }
     }
 
-    /// Rejects unread content inside DER Name, RDN and attribute containers.
+    /// Rejects unread container content and malformed authority-name field tags.
     #[test]
     fn certificate_authority_container_consumption() {
         let valid = [0x30, 12, 0x31, 10, 0x30, 8, 6, 3, 0x55, 4, 3, 0x0c, 1, b'a'];
@@ -745,7 +754,8 @@ mod tests {
             (vec![0x30, 2, 0x30, 0], false),          // RDN must be a SET.
             (vec![0x30, 4, 0x31, 2, 0x31, 0], false), // Attribute must be a SEQUENCE.
             (vec![0x30, 6, 0x31, 4, 0x30, 2, 5, 0], false), // Missing attribute OID.
-            (vec![0x30, 7, 0x31, 5, 0x30, 3, 6, 1, 0x55], false), // Missing value.
+            (vec![0x30, 9, 0x31, 7, 0x30, 5, 5, 0, 0x0c, 1, b'a'], false), // NULL attribute type, despite a valid value.
+            (vec![0x30, 7, 0x31, 5, 0x30, 3, 6, 1, 0x55], false),          // Missing value.
             ([&[0x30, 13][..], &valid[2..], &[0xff]].concat(), false),
             (
                 [&[0x30, 13, 0x31, 11][..], &valid[4..], &[0xff]].concat(),
@@ -771,6 +781,11 @@ mod tests {
             x509_parser::parse_x509_certificate(include_bytes!("testdata/rsa1024.cert.der"))
                 .unwrap();
         assert!(validate_authority_name(cert.subject().as_raw()).is_ok());
+        for tag in [5, 0x46, 0x86, 0xc6, 0x26] {
+            let mut invalid = valid;
+            invalid[6] = tag; // Non-OID, non-universal or constructed attribute type.
+            assert!(validate_authority_name(&invalid).is_err(), "tag {tag:#04x}");
+        }
     }
 
     /// Rejects malformed, duplicated and out-of-order requests before RSA traffic.

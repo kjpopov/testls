@@ -302,6 +302,16 @@ if `gh` is allowed); update it when a session ends.
   task-started fixtures, without container/DNS configuration changes. Publish
   both review fixes in one commit and reply/resolve the two threads; fresh
   CI/CodeRabbit review required. No merge authorization.
+  All CI/Codecov checks passed at `3c89d4d`; CodeRabbit requested one further
+  fix: the locked OID parser does not check the attribute-type tag. Its NULL
+  attribute-type Name reproduced acceptance before the fix. Require the
+  universal, primitive OBJECT IDENTIFIER tag explicitly before existing OID
+  parsing; regressions also reject other ASN.1 classes and constructed OIDs.
+  All 14 ROBOT tests, workspace tests, all-target MSRV, Clippy, fmt, OCSP
+  fixtures and cargo-deny pass. Full sequential container rerun: 17/17 pass.
+  Stopped all 12 task-started fixtures without configuration changes. Publish
+  this fix in one commit, then reply/resolve the review thread; fresh CI and
+  CodeRabbit review required. No dependency/output changes or merge authorization.
 
 Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.
