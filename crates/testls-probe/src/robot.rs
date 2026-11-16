@@ -272,8 +272,10 @@ fn name_container<'a>(body: &mut &'a [u8], tag: Tag) -> Result<&'a [u8], ProbeEr
 
 /// Requires complete Name/RDN/attribute content (RFC 5280 §4.1.2.4).
 ///
-/// `X509Name`'s parser can discard unread container content; check each level
-/// and require a universal primitive OID with valid subidentifiers before semantic validation.
+/// `X509Name`'s parser can discard unread container content and never checks
+/// string contents; check each level, require a universal primitive OID with
+/// valid subidentifiers, and validate universal primitive attribute values
+/// against the X.680 character sets before semantic validation.
 /// No recursion needed.
 fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
     let error = || ProbeError::Unexpected("invalid RSA certificate request");
@@ -308,13 +310,83 @@ fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
                 return Err(error());
             }
             let (value, _) = Oid::from_der(attribute).map_err(|_| error())?;
-            let (rest, _) = Any::from_der(value).map_err(|_| error())?;
+            let (rest, value) = Any::from_der(value).map_err(|_| error())?;
             if !rest.is_empty() {
+                return Err(error());
+            }
+            // DER encodes attribute values primitive; constrained universal
+            // strings must carry contents valid under X.680 §32.
+            if value.header.class() != Class::Universal
+                || value.header.is_constructed()
+                || !string_contents(value.header.tag(), value.data)
+            {
                 return Err(error());
             }
         }
     }
     Ok(())
+}
+
+/// Checks universal string contents against the X.680 §32 character sets.
+///
+/// `Utf8String`, `BmpString` and `UniversalString` must decode without
+/// unpaired surrogates; the constrained byte strings are checked per byte.
+/// `TeletexString`, `GeneralString` and `GraphicString` and non-string tags
+/// stay unconstrained.
+fn string_contents(tag: Tag, data: &[u8]) -> bool {
+    match tag {
+        Tag::Utf8String => std::str::from_utf8(data).is_ok(),
+        Tag::BmpString => {
+            let (units, tail) = data.as_chunks::<2>();
+            if !tail.is_empty() {
+                return false;
+            }
+            let mut units = units.iter();
+            while let Some(pair) = units.next() {
+                let unit = u16::from_be_bytes([pair[0], pair[1]]);
+                if (0xd800..=0xdbff).contains(&unit) {
+                    match units.next() {
+                        Some(next)
+                            if (0xdc00..=0xdfff)
+                                .contains(&u16::from_be_bytes([next[0], next[1]])) => {}
+                        _ => return false,
+                    }
+                } else if (0xdc00..=0xdfff).contains(&unit) {
+                    return false;
+                }
+            }
+            true
+        }
+        Tag::UniversalString => {
+            let (units, tail) = data.as_chunks::<4>();
+            tail.is_empty()
+                && units
+                    .iter()
+                    .map(|u| u32::from_be_bytes([u[0], u[1], u[2], u[3]]))
+                    .all(|u| (u < 0xd800) || (0xe000..=0x10_ffff).contains(&u))
+        }
+        Tag::Ia5String => data.iter().all(|&b| b <= 0x7f),
+        Tag::VisibleString => data.iter().all(|&b| (0x20..=0x7e).contains(&b)),
+        Tag::PrintableString => data.iter().all(|&b| {
+            b.is_ascii_alphanumeric()
+                || matches!(
+                    b,
+                    b' ' | b'\''
+                        | b'('
+                        | b')'
+                        | b'+'
+                        | b','
+                        | b'-'
+                        | b'.'
+                        | b'/'
+                        | b':'
+                        | b'='
+                        | b'?'
+                )
+        }),
+        Tag::NumericString => data.iter().all(|&b| b.is_ascii_digit() || b == b' '),
+        _ => true,
+    }
 }
 
 /// Encrypts one RFC 8017 encoded block with the certificate's RSA public key.
@@ -771,6 +843,10 @@ mod tests {
                 false,
             ), // Unterminated OID subidentifier.
             (vec![0x30, 7, 0x31, 5, 0x30, 3, 6, 1, 0x55], false),          // Missing value.
+            (
+                vec![0x30, 12, 0x31, 10, 0x30, 8, 6, 3, 0x55, 4, 3, 0x0c, 1, 0xff],
+                false,
+            ), // Invalid UTF-8 in a UTF8String value.
             ([&[0x30, 13][..], &valid[2..], &[0xff]].concat(), false),
             (
                 [&[0x30, 13, 0x31, 11][..], &valid[4..], &[0xff]].concat(),
@@ -800,6 +876,76 @@ mod tests {
             let mut invalid = valid;
             invalid[6] = tag; // Non-OID, non-universal or constructed attribute type.
             assert!(validate_authority_name(&invalid).is_err(), "tag {tag:#04x}");
+        }
+    }
+
+    /// Checks X.680 §32 string contents for universal string value tags.
+    #[test]
+    fn certificate_authority_string_contents() {
+        /// Wraps one attribute value in a valid commonName authority name.
+        fn authority_name(tag: u8, contents: &[u8]) -> Vec<u8> {
+            let len = u8::try_from(contents.len()).unwrap();
+            let mut name = vec![
+                0x30,
+                len + 11,
+                0x31,
+                len + 9,
+                0x30,
+                len + 7,
+                6,
+                3,
+                0x55,
+                4,
+                3,
+                tag,
+                len,
+            ];
+            name.extend_from_slice(contents);
+            name
+        }
+        let cases: [(u8, &[u8], bool); 28] = [
+            (0x0c, &[0x61], true),                    // UTF8String "a".
+            (0x0c, &[0xff], false),                   // Invalid UTF-8 lead byte.
+            (0x0c, &[0x80], false),                   // Lone continuation byte.
+            (0x0c, &[0xc3], false),                   // Truncated two-byte sequence.
+            (0x0c, &[0xc0, 0x80], false),             // Overlong encoding.
+            (0x1e, &[0x00], false),                   // BMPString of odd length.
+            (0x1e, &[0x00, 0x61], true),              // BMPString "a".
+            (0x1e, &[0xd8, 0x00], false),             // Unpaired high surrogate.
+            (0x1e, &[0xd8, 0x3d, 0xdc, 0x00], true),  // Paired surrogate U+10400.
+            (0x1c, &[0x00, 0x00, 0x00, 0x61], true),  // UniversalString "a".
+            (0x1c, &[0x00, 0x00, 0x00], false),       // Not a multiple of four bytes.
+            (0x1c, &[0x00, 0x00, 0xd8, 0x00], false), // Surrogate scalar value.
+            (0x1c, &[0x11, 0x00, 0x00, 0x00], false), // Beyond U+10FFFF.
+            (0x16, &[0x7f], true),                    // IA5String allows every 7-bit byte.
+            (0x16, &[0x80], false),                   // IA5String is 7-bit only.
+            (0x1a, &[0x20, 0x7e], true),              // VisibleString bounds.
+            (0x1a, &[0x1f], false),                   // VisibleString control character.
+            (0x1a, &[0x7f], false),                   // VisibleString DEL.
+            (
+                0x13,
+                &[
+                    0x20, 0x27, 0x28, 0x29, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x3a, 0x3d, 0x3f,
+                ],
+                true,
+            ), // PrintableString punctuation.
+            (0x13, &[0x21], false),                   // "!" outside the printable set.
+            (0x12, &[0x30, 0x20], true),              // NumericString digits and space.
+            (0x12, &[0x41], false),                   // "A" is not numeric.
+            (0x14, &[0x80], true),                    // TeletexString unconstrained.
+            (0x1b, &[0xff], true),                    // GeneralString unconstrained.
+            (0x19, &[0x80], true),                    // GraphicString unconstrained.
+            (0x05, &[], true),                        // Non-string value (NULL).
+            (0x2c, &[0x0c, 1, 0x61], false),          // Constructed UTF8String.
+            (0xa4, &[0x00], false),                   // Non-universal value tag.
+        ];
+        for (tag, contents, accepted) in cases {
+            let name = authority_name(tag, contents);
+            assert_eq!(
+                validate_authority_name(&name).is_ok(),
+                accepted,
+                "tag {tag:#04x} contents {contents:02x?}"
+            );
         }
     }
 

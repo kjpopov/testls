@@ -322,6 +322,23 @@ if `gh` is allowed); update it when a session ends.
   fixtures and cargo-deny pass. Full sequential container rerun: 17/17 pass.
   Stopped all 12 task-started fixtures without configuration changes. Fresh CI
   and CodeRabbit review required; no dependency/output changes or merge authorization.
+  At `a107af7`, all CI/Codecov checks pass; patch coverage is 99.77%, project
+  97.79%. The sole uncovered patch line is the defensive `X509Name` trailing-
+  content rejection after the stricter complete-consumption check. CodeRabbit
+  skipped due to its review quota; no substantive current-head review yet.
+  A later CodeRabbit pass at `a107af7` requested one fix: validate authority-name
+  attribute-value contents. Its UTF8String Name (`30 0c 31 0a 30 08 06 03 55 04
+  03 0c 01 ff`) reproduced acceptance before the fix because `Any::from_der`
+  and `X509Name` read declared bytes without checking string contents. Require
+  universal primitive values and validate their X.680 character sets (UTF8/BMP/
+  Universal decode without unpaired surrogates, IA5/Visible/Printable/Numeric
+  per byte; Teletex/General/Graphic and non-strings stay unconstrained). Both
+  the malformed Name and its `61` control are regressions; a 28-case matrix
+  covers each set. All 16 ROBOT tests, workspace tests, all-target MSRV, Clippy,
+  fmt, OCSP fixtures and cargo-deny pass. Full sequential container rerun: 17/17
+  pass; stopped all 12 task-started fixtures without configuration changes.
+  Fresh CI and CodeRabbit review required; no dependency/output changes or merge
+  authorization.
 
 Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.
