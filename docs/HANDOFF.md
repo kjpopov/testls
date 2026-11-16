@@ -266,8 +266,8 @@ if `gh` is allowed); update it when a session ends.
   MSRV and cargo-deny pass. Full sequential container integration: 17/17 pass.
   Stopped all 12 previously stopped fixtures started for this task; no fixture
   configuration changes. Human security review required before merge; no
-  merge authorization for this branch. PR #168 at `f7b3de1`: all CI and
-  Codecov checks pass; patch coverage 100%, project coverage 97.77%.
+  merge authorization for this branch. PR #168 at `f7b3de1` has all CI and
+  Codecov checks passing; patch coverage 100%, project coverage 97.77%.
   CodeRabbit skipped because the OSS review quota was exhausted (its note
   reported a 12-minute reset). No substantive review or approval yet; PR
   remains unmerged.
@@ -330,7 +330,7 @@ if `gh` is allowed); update it when a session ends.
   attribute-value contents. Its UTF8String Name (`30 0c 31 0a 30 08 06 03 55 04
   03 0c 01 ff`) reproduced acceptance before the fix because `Any::from_der`
   and `X509Name` read declared bytes without checking string contents. Require
-  universal primitive values and validate their X.680 character sets (UTF8/BMP/
+  universal primitive values and validate their X.680 character sets (UTF-8/BMP/
   Universal decode without unpaired surrogates, IA5/Visible/Printable/Numeric
   per byte; Teletex/General/Graphic and non-strings stay unconstrained). Both
   the malformed Name and its `61` control are regressions; a 28-case matrix
@@ -339,6 +339,21 @@ if `gh` is allowed); update it when a session ends.
   pass; stopped all 12 task-started fixtures without configuration changes.
   Fresh CI and CodeRabbit review required; no dependency/output changes or merge
   authorization.
+  CodeRabbit at `1dfc2fd` requested that valid constructed attribute values
+  stay accepted and that BMPString surrogate pairs be rejected. Accept
+  constructed values unless they are a string type (`string_type`): DER
+  encodes strings primitive (X.690 §8.23), while other ANY values such as a
+  `postalAddress` SEQUENCE of DirectoryString (RFC 4517 §3.3.24) remain valid;
+  the class, complete `Any` consumption and `string_contents` checks remain.
+  BMPString UTF-16 well-formedness already handles surrogate pairs, so the
+  adjacent-surrogate rows are pinned and the code is unchanged. Deferred:
+  constructed universal non-string, non-SEQUENCE values are accepted because
+  `string_contents` passes other tags, and inner contents of constructed
+  values are not schema-validated. 16 ROBOT tests (30-case string matrix),
+  workspace tests, all-target MSRV, Clippy, fmt, OCSP fixtures, cargo-deny and
+  full 17/17 container integration pass; stopped all 12 task-started fixtures
+  without configuration changes. Fresh CI and CodeRabbit review required; no
+  dependency/output changes or merge authorization.
 
 Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.

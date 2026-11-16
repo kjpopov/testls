@@ -274,8 +274,10 @@ fn name_container<'a>(body: &mut &'a [u8], tag: Tag) -> Result<&'a [u8], ProbeEr
 ///
 /// `X509Name`'s parser can discard unread container content and never checks
 /// string contents; check each level, require a universal primitive OID with
-/// valid subidentifiers, and validate universal primitive attribute values
-/// against the X.680 character sets before semantic validation.
+/// valid subidentifiers, and validate universal attribute values: string
+/// types must be primitive (X.690 §8.23) with contents valid under the
+/// X.680 character sets, while constructed non-string values (e.g. the
+/// postalAddress SEQUENCE, RFC 4517 §3.3.24) are allowed.
 /// No recursion needed.
 fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
     let error = || ProbeError::Unexpected("invalid RSA certificate request");
@@ -314,10 +316,13 @@ fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
             if !rest.is_empty() {
                 return Err(error());
             }
-            // DER encodes attribute values primitive; constrained universal
+            // Attribute values are attribute-dependent ANY (RFC 5280
+            // §4.1.2.4) and may be constructed, e.g. postalAddress is a
+            // SEQUENCE of DirectoryString (RFC 4517 §3.3.24). DER encodes
+            // string types primitive (X.690 §8.23); constrained universal
             // strings must carry contents valid under X.680 §32.
             if value.header.class() != Class::Universal
-                || value.header.is_constructed()
+                || (value.header.is_constructed() && string_type(value.header.tag()))
                 || !string_contents(value.header.tag(), value.data)
             {
                 return Err(error());
@@ -327,10 +332,32 @@ fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
     Ok(())
 }
 
+/// X.680 §32 string types, which X.690 §8.23 encodes primitive in DER.
+fn string_type(tag: Tag) -> bool {
+    matches!(
+        tag,
+        Tag::Utf8String
+            | Tag::NumericString
+            | Tag::PrintableString
+            | Tag::TeletexString
+            | Tag::VideotexString
+            | Tag::Ia5String
+            | Tag::GraphicString
+            | Tag::VisibleString
+            | Tag::GeneralString
+            | Tag::UniversalString
+            | Tag::CharacterString
+            | Tag::BmpString
+    )
+}
+
 /// Checks universal string contents against the X.680 §32 character sets.
 ///
 /// `Utf8String`, `BmpString` and `UniversalString` must decode without
-/// unpaired surrogates; the constrained byte strings are checked per byte.
+/// unpaired surrogates; `BmpString` follows UTF-16 well-formedness, so
+/// unpaired surrogate code units are rejected and valid pairs tolerated.
+/// The constrained byte strings are checked per byte; `VisibleString` is
+/// the full printable ASCII set 0x20..=0x7e per X.680 §32.8.
 /// `TeletexString`, `GeneralString` and `GraphicString` and non-string tags
 /// stay unconstrained.
 fn string_contents(tag: Tag, data: &[u8]) -> bool {
@@ -825,6 +852,14 @@ mod tests {
         let valid = [0x30, 12, 0x31, 10, 0x30, 8, 6, 3, 0x55, 4, 3, 0x0c, 1, b'a'];
         for (name, accepted) in [
             (valid.to_vec(), true),
+            (
+                // postalAddress (RFC 4519 §2.23) is a SEQUENCE of
+                // DirectoryString (RFC 4517 §3.3.24): a constructed value.
+                vec![
+                    0x30, 0x0e, 0x31, 0x0c, 0x30, 0x0a, 6, 3, 0x55, 4, 0x10, 0x30, 3, 0x0c, 1, 0x61,
+                ],
+                true,
+            ),
             ([&[0x30, 24][..], &valid[2..], &valid[2..]].concat(), true),
             (
                 [&[0x30, 22, 0x31, 20][..], &valid[4..], &valid[4..]].concat(),
@@ -903,25 +938,31 @@ mod tests {
             name.extend_from_slice(contents);
             name
         }
-        let cases: [(u8, &[u8], bool); 28] = [
-            (0x0c, &[0x61], true),                    // UTF8String "a".
-            (0x0c, &[0xff], false),                   // Invalid UTF-8 lead byte.
-            (0x0c, &[0x80], false),                   // Lone continuation byte.
-            (0x0c, &[0xc3], false),                   // Truncated two-byte sequence.
-            (0x0c, &[0xc0, 0x80], false),             // Overlong encoding.
-            (0x1e, &[0x00], false),                   // BMPString of odd length.
-            (0x1e, &[0x00, 0x61], true),              // BMPString "a".
-            (0x1e, &[0xd8, 0x00], false),             // Unpaired high surrogate.
-            (0x1e, &[0xd8, 0x3d, 0xdc, 0x00], true),  // Paired surrogate U+10400.
-            (0x1c, &[0x00, 0x00, 0x00, 0x61], true),  // UniversalString "a".
-            (0x1c, &[0x00, 0x00, 0x00], false),       // Not a multiple of four bytes.
-            (0x1c, &[0x00, 0x00, 0xd8, 0x00], false), // Surrogate scalar value.
-            (0x1c, &[0x11, 0x00, 0x00, 0x00], false), // Beyond U+10FFFF.
-            (0x16, &[0x7f], true),                    // IA5String allows every 7-bit byte.
-            (0x16, &[0x80], false),                   // IA5String is 7-bit only.
-            (0x1a, &[0x20, 0x7e], true),              // VisibleString bounds.
-            (0x1a, &[0x1f], false),                   // VisibleString control character.
-            (0x1a, &[0x7f], false),                   // VisibleString DEL.
+        let cases: [(u8, &[u8], bool); 30] = [
+            (0x0c, &[0x61], true),                                // UTF8String "a".
+            (0x0c, &[0xff], false),                               // Invalid UTF-8 lead byte.
+            (0x0c, &[0x80], false),                               // Lone continuation byte.
+            (0x0c, &[0xc3], false),                               // Truncated two-byte sequence.
+            (0x0c, &[0xc0, 0x80], false),                         // Overlong encoding.
+            (0x1e, &[0x00], false),                               // BMPString of odd length.
+            (0x1e, &[0x00, 0x61], true),                          // BMPString "a".
+            (0x1e, &[0xd8, 0x00], false),                         // Unpaired high surrogate.
+            (0x1e, &[0xd8, 0x3d, 0xdc, 0x00], true),              // Paired surrogate U+10400.
+            (0x1e, &[0xd8, 0x00, 0xd8, 0x00, 0xdc, 0x00], false), // Unpaired: high, high, low.
+            (
+                0x1e,
+                &[0xd8, 0x3d, 0xdc, 0x00, 0xd8, 0x00, 0xdc, 0x00],
+                true,
+            ), // Two valid pairs.
+            (0x1c, &[0x00, 0x00, 0x00, 0x61], true),              // UniversalString "a".
+            (0x1c, &[0x00, 0x00, 0x00], false),                   // Not a multiple of four bytes.
+            (0x1c, &[0x00, 0x00, 0xd8, 0x00], false),             // Surrogate scalar value.
+            (0x1c, &[0x11, 0x00, 0x00, 0x00], false),             // Beyond U+10FFFF.
+            (0x16, &[0x7f], true),       // IA5String allows every 7-bit byte.
+            (0x16, &[0x80], false),      // IA5String is 7-bit only.
+            (0x1a, &[0x20, 0x7e], true), // VisibleString bounds.
+            (0x1a, &[0x1f], false),      // VisibleString control character.
+            (0x1a, &[0x7f], false),      // VisibleString DEL.
             (
                 0x13,
                 &[
@@ -929,15 +970,15 @@ mod tests {
                 ],
                 true,
             ), // PrintableString punctuation.
-            (0x13, &[0x21], false),                   // "!" outside the printable set.
-            (0x12, &[0x30, 0x20], true),              // NumericString digits and space.
-            (0x12, &[0x41], false),                   // "A" is not numeric.
-            (0x14, &[0x80], true),                    // TeletexString unconstrained.
-            (0x1b, &[0xff], true),                    // GeneralString unconstrained.
-            (0x19, &[0x80], true),                    // GraphicString unconstrained.
-            (0x05, &[], true),                        // Non-string value (NULL).
-            (0x2c, &[0x0c, 1, 0x61], false),          // Constructed UTF8String.
-            (0xa4, &[0x00], false),                   // Non-universal value tag.
+            (0x13, &[0x21], false),      // "!" outside the printable set.
+            (0x12, &[0x30, 0x20], true), // NumericString digits and space.
+            (0x12, &[0x41], false),      // "A" is not numeric.
+            (0x14, &[0x80], true),       // TeletexString unconstrained.
+            (0x1b, &[0xff], true),       // GeneralString unconstrained.
+            (0x19, &[0x80], true),       // GraphicString unconstrained.
+            (0x05, &[], true),           // Non-string value (NULL).
+            (0x2c, &[0x0c, 1, 0x61], false), // Constructed UTF8String.
+            (0xa4, &[0x00], false),      // Non-universal value tag.
         ];
         for (tag, contents, accepted) in cases {
             let name = authority_name(tag, contents);
