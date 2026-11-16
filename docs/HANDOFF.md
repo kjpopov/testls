@@ -247,113 +247,18 @@ if `gh` is allowed); update it when a session ends.
   commented on issue #166 with the fix and validation, then closed it as completed.
   The agent did not merge the PR; existing stash and containers remain untouched.
 
-- ROBOT optional client certificate requests (#160, 2026-11-16): branch
-  `fix/robot-client-certificate` from merged #167 main `4c5ae675`. Preserved
-  the prior rustix closeout note and existing `handoff-local` stash. Accept
-  one request after the server certificate, validate version-specific vectors
-  and DER authority names, and send only an empty client Certificate before
-  each RSA vector. Request presence/content must match between attempts;
-  controls, repeated fatal-alert evidence and eight-connection bound unchanged.
-  Regression failed before the fix; all 13 ROBOT tests pass, covering TLS
-  1.0/1.1/1.2 framing, request fragmentation, malformed/duplicate/order
-  rejection, request changes and required-client-auth refusal. MariaDB CLI
-  integration passes: vectors complete, equal alerts remain not tested.
-  Clean targeted coverage is 707/708 lines (99.86%); request helpers 39/39.
-  Only the existing defensive RSA-modulus guard is uncovered.
-  Maintainer authorized starting stopped existing fixtures and stopping only
-  those started for this task; no container/DNS configuration changes.
-  OCSP fixtures, fmt, workspace tests, final workspace Clippy (`-D warnings`),
-  MSRV and cargo-deny pass. Full sequential container integration: 17/17 pass.
-  Stopped all 12 previously stopped fixtures started for this task; no fixture
-  configuration changes. Human security review required before merge; no
-  merge authorization for this branch. PR #168 at `f7b3de1` has all CI and
-  Codecov checks passing; patch coverage 100%, project coverage 97.77%.
-  CodeRabbit skipped because the OSS review quota was exhausted (its note
-  reported a 12-minute reset). No substantive review or approval yet; PR
-  remains unmerged.
-  Maintainer supplied an external agent review: no blockers. Review follow-up
-  names the empty Certificate handshake (not a record), explains CKE capacity
-  and ServerHello offsets, and rejects empty certificate types earlier.
-  Keep independent expected wire bytes in tests, rather than sharing the
-  production constant. RFC 2246 §7.4.4 explicitly requires the TLS 1.0
-  authority vector minimum of three bytes; retain that version check.
-  Expanded the request-change test to cover appearance, disappearance,
-  content changes and a round-boundary change, plus no retry connections.
-  Document this existing fail-inconclusive policy in usage and decision #101;
-  it follows the no-retry bound of #89. All 13 ROBOT tests, workspace tests,
-  Clippy (`-D warnings`), MSRV, fmt, OCSP fixtures and cargo-deny pass.
-  Full sequential container rerun: 17/17 pass; stopped all 12 task-started
-  fixtures again, without configuration/DNS changes. Request CodeRabbit
-  after publishing all review fixes together; no merge authorization.
-  CodeRabbit reviewed `5cb345c` after all CI/Codecov checks passed and requested
-  two fixes. Its malformed authority Name (`30 01 ff`) reproduced acceptance
-  before the fix: the X.509 parser discarded unread container content. Check
-  complete Name/RDN/attribute consumption using the RFC 5280 §4.1.2.4 shape,
-  then retain existing semantic validation. Regression covers unread bytes at
-  every level, malformed tags/missing fields, multiple RDNs/attributes and a
-  real certificate subject. A bounded test-only relay now observes all eight
-  unchanged MariaDB exchanges: each real server CertificateRequest and an
-  empty client Certificate immediately before CKE. Keep the CLI's equal-alert
-  not-tested/no-finding assertions; no public output/schema change. All 14
-  ROBOT unit tests, workspace tests and the real MariaDB relay/CLI regression
-  pass. OCSP fixtures, fmt, cargo-deny, final Clippy (`-D warnings`) and MSRV
-  including all test targets pass. Full sequential container integration:
-  17/17 pass, including the transparent MariaDB observation. Stopped all 12
-  task-started fixtures, without container/DNS configuration changes. Publish
-  both review fixes in one commit and reply/resolve the two threads; fresh
-  CI/CodeRabbit review required. No merge authorization.
-  All CI/Codecov checks passed at `3c89d4d`; CodeRabbit requested one further
-  fix: the locked OID parser does not check the attribute-type tag. Its NULL
-  attribute-type Name reproduced acceptance before the fix. Require the
-  universal, primitive OBJECT IDENTIFIER tag explicitly before existing OID
-  parsing; regressions also reject other ASN.1 classes and constructed OIDs.
-  All 14 ROBOT tests, workspace tests, all-target MSRV, Clippy, fmt, OCSP
-  fixtures and cargo-deny pass. Full sequential container rerun: 17/17 pass.
-  Stopped all 12 task-started fixtures without configuration changes. Publish
-  this fix in one commit, then reply/resolve the review thread; fresh CI and
-  CodeRabbit review required. No dependency/output changes or merge authorization.
-  All CI/Codecov checks passed at `4af59e2`; CodeRabbit found that the locked
-  OID parser also accepts malformed subidentifier contents. Its unterminated
-  OID reproduced acceptance before the fix. Enforce X.690 §8.19.2 minimal,
-  terminated base-128 subidentifiers and reject empty contents, retaining all
-  prior DER checks. Regression tests cover the reported Name, boundaries,
-  leading-zero encodings and valid multi-octet/large arcs without numeric limits.
-  All 15 ROBOT tests, workspace tests, all-target MSRV, Clippy, fmt, OCSP
-  fixtures and cargo-deny pass. Full sequential container rerun: 17/17 pass.
-  Stopped all 12 task-started fixtures without configuration changes. Fresh CI
-  and CodeRabbit review required; no dependency/output changes or merge authorization.
-  At `a107af7`, all CI/Codecov checks pass; patch coverage is 99.77%, project
-  97.79%. The sole uncovered patch line is the defensive `X509Name` trailing-
-  content rejection after the stricter complete-consumption check. CodeRabbit
-  skipped due to its review quota; no substantive current-head review yet.
-  A later CodeRabbit pass at `a107af7` requested one fix: validate authority-name
-  attribute-value contents. Its UTF8String Name (`30 0c 31 0a 30 08 06 03 55 04
-  03 0c 01 ff`) reproduced acceptance before the fix because `Any::from_der`
-  and `X509Name` read declared bytes without checking string contents. Require
-  universal primitive values and validate their X.680 character sets (UTF-8/BMP/
-  Universal decode without unpaired surrogates, IA5/Visible/Printable/Numeric
-  per byte; Teletex/General/Graphic and non-strings stay unconstrained). Both
-  the malformed Name and its `61` control are regressions; a 28-case matrix
-  covers each set. All 16 ROBOT tests, workspace tests, all-target MSRV, Clippy,
-  fmt, OCSP fixtures and cargo-deny pass. Full sequential container rerun: 17/17
-  pass; stopped all 12 task-started fixtures without configuration changes.
-  Fresh CI and CodeRabbit review required; no dependency/output changes or merge
-  authorization.
-  CodeRabbit at `1dfc2fd` requested that valid constructed attribute values
-  stay accepted and that BMPString surrogate pairs be rejected. Accept
-  constructed values unless they are a string type (`string_type`): DER
-  encodes strings primitive (X.690 §8.23), while other ANY values such as a
-  `postalAddress` SEQUENCE of DirectoryString (RFC 4517 §3.3.24) remain valid;
-  the class, complete `Any` consumption and `string_contents` checks remain.
-  BMPString UTF-16 well-formedness already handles surrogate pairs, so the
-  adjacent-surrogate rows are pinned and the code is unchanged. Deferred:
-  constructed universal non-string, non-SEQUENCE values are accepted because
-  `string_contents` passes other tags, and inner contents of constructed
-  values are not schema-validated. 16 ROBOT tests (30-case string matrix),
-  workspace tests, all-target MSRV, Clippy, fmt, OCSP fixtures, cargo-deny and
-  full 17/17 container integration pass; stopped all 12 task-started fixtures
-  without configuration changes. Fresh CI and CodeRabbit review required; no
-  dependency/output changes or merge authorization.
+- ROBOT optional client certificate requests (#160, PR #168, 2026-11-16):
+  accept one validated `CertificateRequest` after the server certificate
+  (version-specific vectors, DER authority Names), send only an empty client
+  Certificate before CKE; request presence/content must match across the
+  eight attempts (decision #101, usage.md). Authority Name checks in
+  `robot.rs`: `name_container` (complete Name/RDN/attribute consumption),
+  explicit OID tag + X.690 §8.19.2 subidentifiers, `der_elements` (bounded
+  recursive DER walk of attribute values, depth 8; constructed universal only
+  SEQUENCE/SET; `string_contents` X.680 charsets). BMPString accepts valid
+  UTF-16 surrogate pairs (declined strict BMP-only, possible follow-up).
+  MariaDB relay/CLI integration test `mysql_robot_optional_client_certificate`.
+  Several CodeRabbit rounds tightened DER validation; final round closed.
 
 Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.

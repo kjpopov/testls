@@ -274,11 +274,8 @@ fn name_container<'a>(body: &mut &'a [u8], tag: Tag) -> Result<&'a [u8], ProbeEr
 ///
 /// `X509Name`'s parser can discard unread container content and never checks
 /// string contents; check each level, require a universal primitive OID with
-/// valid subidentifiers, and validate universal attribute values: string
-/// types must be primitive (X.690 §8.23) with contents valid under the
-/// X.680 character sets, while constructed non-string values (e.g. the
-/// postalAddress SEQUENCE, RFC 4517 §3.3.24) are allowed.
-/// No recursion needed.
+/// valid subidentifiers, and require a universal attribute value whose
+/// nested elements pass [`der_elements`].
 fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
     let error = || ProbeError::Unexpected("invalid RSA certificate request");
     let mut rdns = name_container(&mut name, Tag::Sequence)?;
@@ -312,18 +309,11 @@ fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
                 return Err(error());
             }
             let (value, _) = Oid::from_der(attribute).map_err(|_| error())?;
-            let (rest, value) = Any::from_der(value).map_err(|_| error())?;
-            if !rest.is_empty() {
-                return Err(error());
-            }
+            let (rest, any) = Any::from_der(value).map_err(|_| error())?;
             // Attribute values are attribute-dependent ANY (RFC 5280
             // §4.1.2.4) and may be constructed, e.g. postalAddress is a
-            // SEQUENCE of DirectoryString (RFC 4517 §3.3.24). DER encodes
-            // string types primitive (X.690 §8.23); constrained universal
-            // strings must carry contents valid under X.680 §32.
-            if value.header.class() != Class::Universal
-                || (value.header.is_constructed() && string_type(value.header.tag()))
-                || !string_contents(value.header.tag(), value.data)
+            // SEQUENCE of DirectoryString (RFC 4517 §3.3.24).
+            if !rest.is_empty() || any.header.class() != Class::Universal || !der_elements(value, 0)
             {
                 return Err(error());
             }
@@ -332,23 +322,38 @@ fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
     Ok(())
 }
 
-/// X.680 §32 string types, which X.690 §8.23 encodes primitive in DER.
-fn string_type(tag: Tag) -> bool {
-    matches!(
-        tag,
-        Tag::Utf8String
-            | Tag::NumericString
-            | Tag::PrintableString
-            | Tag::TeletexString
-            | Tag::VideotexString
-            | Tag::Ia5String
-            | Tag::GraphicString
-            | Tag::VisibleString
-            | Tag::GeneralString
-            | Tag::UniversalString
-            | Tag::CharacterString
-            | Tag::BmpString
-    )
+/// Nesting bound for constructed attribute values; keeps recursion shallow.
+const MAX_VALUE_DEPTH: usize = 8;
+
+/// Checks that `data` is a complete run of DER elements, recursing into
+/// constructed ones up to [`MAX_VALUE_DEPTH`].
+///
+/// Universal types are constructed only for SEQUENCE and SET (X.690 §8.9,
+/// §8.11; DER forbids constructed strings, §10.2); primitive universal strings
+/// need valid X.680 §32 contents. Other primitive contents are
+/// attribute-specific and not checked.
+fn der_elements(mut data: &[u8], depth: usize) -> bool {
+    while !data.is_empty() {
+        let Ok((rest, value)) = Any::from_der(data) else {
+            return false;
+        };
+        let header = &value.header;
+        let universal = header.class() == Class::Universal;
+        let valid = if header.is_constructed() {
+            depth < MAX_VALUE_DEPTH
+                && (!universal || matches!(header.tag(), Tag::Sequence | Tag::Set))
+                && der_elements(value.data, depth + 1)
+        } else {
+            !universal
+                || (!matches!(header.tag(), Tag::Sequence | Tag::Set)
+                    && string_contents(header.tag(), value.data))
+        };
+        if !valid {
+            return false;
+        }
+        data = rest;
+    }
+    true
 }
 
 /// Checks universal string contents against the X.680 §32 character sets.
@@ -860,6 +865,34 @@ mod tests {
                 ],
                 true,
             ),
+            (
+                // postalAddress SEQUENCE with an incomplete nested element.
+                vec![
+                    0x30, 12, 0x31, 10, 0x30, 8, 6, 3, 0x55, 4, 0x10, 0x30, 1, 0xff,
+                ],
+                false,
+            ),
+            (
+                // postalAddress holding invalid UTF-8.
+                vec![
+                    0x30, 0x0e, 0x31, 0x0c, 0x30, 0x0a, 6, 3, 0x55, 4, 0x10, 0x30, 3, 0x0c, 1, 0xff,
+                ],
+                false,
+            ),
+            (
+                // Constructed universal non-SEQUENCE/SET value (OCTET STRING).
+                vec![
+                    0x30, 0x0e, 0x31, 0x0c, 0x30, 0x0a, 6, 3, 0x55, 4, 0x10, 0x24, 3, 0x04, 1, 0x61,
+                ],
+                false,
+            ),
+            (
+                // Primitive SEQUENCE nested in a value.
+                vec![
+                    0x30, 13, 0x31, 11, 0x30, 9, 6, 3, 0x55, 4, 0x10, 0x30, 2, 0x10, 0,
+                ],
+                false,
+            ),
             ([&[0x30, 24][..], &valid[2..], &valid[2..]].concat(), true),
             (
                 [&[0x30, 22, 0x31, 20][..], &valid[4..], &valid[4..]].concat(),
@@ -912,6 +945,29 @@ mod tests {
             invalid[6] = tag; // Non-OID, non-universal or constructed attribute type.
             assert!(validate_authority_name(&invalid).is_err(), "tag {tag:#04x}");
         }
+    }
+
+    /// Bounds nesting of constructed attribute values and allows context tags.
+    #[test]
+    fn attribute_value_nesting() {
+        /// Wraps `inner` in `depth` constructed SEQUENCEs.
+        fn nested(depth: usize, inner: &[u8]) -> Vec<u8> {
+            let mut value = inner.to_vec();
+            for _ in 0..depth {
+                let mut outer = vec![0x30, u8::try_from(value.len()).unwrap()];
+                outer.extend(value);
+                value = outer;
+            }
+            value
+        }
+        let leaf = [0x0c, 1, b'a'];
+        assert!(der_elements(&nested(MAX_VALUE_DEPTH, &leaf), 0));
+        assert!(!der_elements(&nested(MAX_VALUE_DEPTH + 1, &leaf), 0));
+        assert!(der_elements(&[0xa0, 3, 0x0c, 1, b'a'], 0)); // Context-specific, constructed.
+        assert!(der_elements(&[0x80, 1, 0xff], 0)); // Context-specific, primitive.
+        assert!(!der_elements(&[0xa0, 3, 0x0c, 1, 0xff], 0)); // Nested invalid UTF-8.
+        assert!(der_elements(&[0x0c, 1, b'a', 0x0c, 1, b'b'], 0)); // Element run.
+        assert!(!der_elements(&[0x0c, 1, b'a', 0x0c], 0)); // Truncated second element.
     }
 
     /// Checks X.680 §32 string contents for universal string value tags.
