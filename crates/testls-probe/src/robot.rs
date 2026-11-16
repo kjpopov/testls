@@ -11,12 +11,22 @@ use testls_wire::{
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
+use x509_parser::prelude::{FromDer, X509Name};
 use x509_parser::public_key::PublicKey;
 
 use crate::{ProbeError, Transport, ccs::read_record, hello::client_hello};
 
 /// Upper bound on the plaintext server flight.
 const MAX_FLIGHT: usize = 256 * 1024;
+
+/// Comparable static-RSA flight, including the optional client-authentication policy.
+#[derive(Debug, PartialEq, Eq)]
+struct RsaFlight {
+    /// Server leaf certificate used to encrypt the probe vectors.
+    leaf: Vec<u8>,
+    /// Validated request body, retained to reject changes between attempts.
+    certificate_request: Option<Vec<u8>>,
+}
 
 /// Tests one measured static RSA suite for a repeated padding-dependent alert.
 ///
@@ -37,18 +47,26 @@ pub async fn probe_robot(
     {
         return Err(ProbeError::Unexpected("not a static RSA TLS suite"));
     }
-    let mut cert = None;
+    let mut previous: Option<RsaFlight> = None;
     let mut responses = [[0_u8; 4]; 2];
     // Interleave controls and malformed blocks to reduce transient differences.
     for round in &mut responses {
         for (kind, response) in round.iter_mut().enumerate() {
-            let (leaf, alert) = attempt(transport, version, suite, sni, kind).await?;
-            if cert.as_ref().is_some_and(|c| c != &leaf) {
+            let (current, alert) = attempt(transport, version, suite, sni, kind).await?;
+            if previous.as_ref().is_some_and(|p| p.leaf != current.leaf) {
                 return Err(ProbeError::Unexpected(
                     "server certificate changed during probe",
                 ));
             }
-            cert = Some(leaf);
+            if previous
+                .as_ref()
+                .is_some_and(|p| p.certificate_request != current.certificate_request)
+            {
+                return Err(ProbeError::Unexpected(
+                    "server certificate request changed during probe",
+                ));
+            }
+            previous = Some(current);
             *response = alert;
         }
     }
@@ -71,18 +89,23 @@ async fn attempt(
     suite: u16,
     sni: Option<&str>,
     kind: usize,
-) -> Result<(Vec<u8>, u8), ProbeError> {
+) -> Result<(RsaFlight, u8), ProbeError> {
     let hello = client_hello(version, vec![suite], sni)
         .encode()
         .map_err(ProbeError::Encode)?;
     let mut stream = transport.connect().await?;
     timeout(transport.read_timeout, async {
         stream.write_all(&hello).await.map_err(ProbeError::Io)?;
-        let leaf = flight(&mut stream, version, suite).await?;
-        let encrypted = ciphertext(&leaf, version, kind)?;
+        let received = flight(&mut stream, version, suite).await?;
+        let encrypted = ciphertext(&received.leaf, version, kind)?;
         let len = u16::try_from(encrypted.len())
             .map_err(|_| ProbeError::Unexpected("RSA key too large"))?;
-        let mut body = Vec::with_capacity(encrypted.len() + 6);
+        let mut body = Vec::with_capacity(encrypted.len() + 13);
+        if received.certificate_request.is_some() {
+            // RFC 2246/4346/5246 §7.4.6–7: no credentials; empty Certificate
+            // immediately precedes ClientKeyExchange, in the same record.
+            body.extend_from_slice(&[11, 0, 0, 3, 0, 0, 0]);
+        }
         body.extend_from_slice(&[16, 0]);
         body.extend_from_slice(&(len + 2).to_be_bytes());
         body.extend_from_slice(&len.to_be_bytes());
@@ -102,22 +125,23 @@ async fn attempt(
         if typ != 21 || received_version != version || alert.len() != 2 || alert[0] != 2 {
             return Err(ProbeError::Unexpected("no comparable fatal alert"));
         }
-        Ok((leaf, alert[1]))
+        Ok((received, alert[1]))
     })
     .await
     .map_err(|_| ProbeError::Timeout)?
 }
 
-/// Requires exactly one hello and certificate before `ServerHelloDone`.
+/// Requires hello, certificate, at most one validated request, then `ServerHelloDone`.
 async fn flight(
     stream: &mut TcpStream,
     version: ProtocolVersion,
     suite: u16,
-) -> Result<Vec<u8>, ProbeError> {
+) -> Result<RsaFlight, ProbeError> {
     let mut pending = Vec::new();
     let mut total = 0;
     let mut hello = false;
     let mut leaf = None;
+    let mut certificate_request = None;
     loop {
         let (typ, _, body) = read_record(stream).await?;
         total += body.len() + 5;
@@ -152,19 +176,76 @@ async fn flight(
                         return Err(ProbeError::Unexpected("empty certificate chain"));
                     }
                 }
+                handshake_type::CERTIFICATE_REQUEST
+                    if leaf.is_some() && certificate_request.is_none() =>
+                {
+                    validate_certificate_request(version, message.body)?;
+                    certificate_request = Some(message.body.to_vec());
+                }
                 handshake_type::SERVER_HELLO_DONE
                     if hello
                         && leaf.is_some()
                         && message.body.is_empty()
                         && offset == pending.len() =>
                 {
-                    return Ok(leaf.unwrap());
+                    return Ok(RsaFlight {
+                        leaf: leaf.unwrap(),
+                        certificate_request,
+                    });
                 }
                 _ => return Err(ProbeError::Unexpected("unexpected RSA server flight")),
             }
         }
         pending.drain(..offset);
     }
+}
+
+/// Reads one bounded uint16-length TLS vector without allocating.
+fn request_vector<'a>(body: &mut &'a [u8]) -> Result<&'a [u8], ProbeError> {
+    let error = || ProbeError::Unexpected("invalid RSA certificate request");
+    let (prefix, rest) = body.split_at_checked(2).ok_or_else(error)?;
+    let len = usize::from(u16::from_be_bytes([prefix[0], prefix[1]]));
+    let (value, rest) = rest.split_at_checked(len).ok_or_else(error)?;
+    *body = rest;
+    Ok(value)
+}
+
+/// Checks RFC 2246/4346/5246 §7.4.4 vector framing and DER authority names.
+///
+/// TLS 1.2 adds nonempty hash/signature pairs; TLS 1.0 requires a nonempty
+/// authority list. Unknown algorithm/type values need no selection because
+/// the probe always sends an empty certificate, never a client credential.
+fn validate_certificate_request(
+    version: ProtocolVersion,
+    mut body: &[u8],
+) -> Result<(), ProbeError> {
+    let error = || ProbeError::Unexpected("invalid RSA certificate request");
+    let (&types_len, rest) = body.split_first().ok_or_else(error)?;
+    let (_, rest) = rest
+        .split_at_checked(usize::from(types_len))
+        .ok_or_else(error)?;
+    if types_len == 0 {
+        return Err(error());
+    }
+    body = rest;
+    if version == ProtocolVersion::TLS12 {
+        let algorithms = request_vector(&mut body)?;
+        if algorithms.len() < 2 || algorithms.len() % 2 != 0 {
+            return Err(error());
+        }
+    }
+    let mut authorities = request_vector(&mut body)?;
+    if !body.is_empty() || (version == ProtocolVersion::TLS10 && authorities.len() < 3) {
+        return Err(error());
+    }
+    while !authorities.is_empty() {
+        let name = request_vector(&mut authorities)?;
+        let (rest, _) = X509Name::from_der(name).map_err(|_| error())?;
+        if !rest.is_empty() {
+            return Err(error());
+        }
+    }
+    Ok(())
 }
 
 /// Encrypts one RFC 8017 encoded block with the certificate's RSA public key.
@@ -241,7 +322,13 @@ mod tests {
 
     /// Wraps a body in a TLS 1.2 record.
     fn record(typ: u8, body: &[u8]) -> Vec<u8> {
-        let mut r = vec![typ, 3, 3];
+        record_at(typ, ProtocolVersion::TLS12, body)
+    }
+
+    /// Wraps a body in a record at the measured protocol version.
+    fn record_at(typ: u8, version: ProtocolVersion, body: &[u8]) -> Vec<u8> {
+        let [major, minor] = version.0.to_be_bytes();
+        let mut r = vec![typ, major, minor];
         r.extend_from_slice(&u16::try_from(body.len()).unwrap().to_be_bytes());
         r.extend_from_slice(body);
         r
@@ -281,7 +368,7 @@ mod tests {
     }
 
     /// Reads one scripted server flight without sending attack traffic.
-    async fn scripted_flight(bytes: Vec<u8>) -> Result<Vec<u8>, ProbeError> {
+    async fn scripted_flight(bytes: Vec<u8>) -> Result<RsaFlight, ProbeError> {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let peer = tokio::spawn(async move {
@@ -372,8 +459,28 @@ mod tests {
         }
     }
 
-    /// Exercises all eight exchanges with a controllable sequence of alerts.
-    async fn scripted(alerts: [u8; 8]) -> Result<(), ProbeError> {
+    /// Builds a minimal certificate request from RFC 2246/4346/5246 §7.4.4.
+    fn certificate_request(version: ProtocolVersion) -> Vec<u8> {
+        let mut body = vec![1, 1]; // One certificate type: rsa_sign.
+        if version == ProtocolVersion::TLS12 {
+            body.extend_from_slice(&[0, 2, 4, 1]); // One SHA-256/RSA pair.
+        }
+        if version == ProtocolVersion::TLS10 {
+            body.extend_from_slice(&[0, 4, 0, 2, 0x30, 0]); // One DER Name.
+        } else {
+            body.extend_from_slice(&[0, 0]); // No preferred authorities.
+        }
+        let mut message = vec![13, 0, 0, u8::try_from(body.len()).unwrap()];
+        message.extend(body);
+        message
+    }
+
+    /// Exercises eight versioned exchanges, with optional client authentication.
+    async fn scripted(
+        alerts: [u8; 8],
+        version: ProtocolVersion,
+        requested: bool,
+    ) -> Result<(), ProbeError> {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let mut transport = Transport::new(listener.local_addr().unwrap());
         transport.read_timeout = Duration::from_secs(2);
@@ -381,20 +488,41 @@ mod tests {
             for alert in alerts {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 read_record(&mut stream).await.unwrap();
-                let flight = server_flight(include_bytes!("testdata/rsa1024.cert.der"));
+                let mut h = server_handshakes(include_bytes!("testdata/rsa1024.cert.der"));
+                h[4..6].copy_from_slice(&version.0.to_be_bytes());
+                if requested {
+                    h.splice(h.len() - 4..h.len() - 4, certificate_request(version));
+                }
+                let mut flight = record_at(22, version, &h[..19]);
+                flight.extend(record_at(22, version, &h[19..]));
                 for part in flight.chunks(13) {
                     stream.write_all(part).await.unwrap();
                 }
-                let (typ, version, cke) = read_record(&mut stream).await.unwrap();
-                assert_eq!((typ, version), (22, ProtocolVersion::TLS12));
+                let (typ, received_version, cke) = read_record(&mut stream).await.unwrap();
+                assert_eq!((typ, received_version), (22, version));
+                let cke = if requested {
+                    assert_eq!(cke[..7], [11, 0, 0, 3, 0, 0, 0]);
+                    &cke[7..]
+                } else {
+                    cke.as_slice()
+                };
                 assert_eq!(cke[0..6], [16, 0, 0, 130, 0, 128]);
                 assert_eq!(cke.len(), 134);
-                assert_eq!(read_record(&mut stream).await.unwrap().2, [1]);
-                assert_eq!(read_record(&mut stream).await.unwrap().2, [0; 64]);
-                stream.write_all(&record(21, &[2, alert])).await.unwrap();
+                assert_eq!(
+                    read_record(&mut stream).await.unwrap(),
+                    (20, version, vec![1])
+                );
+                assert_eq!(
+                    read_record(&mut stream).await.unwrap(),
+                    (22, version, vec![0; 64])
+                );
+                stream
+                    .write_all(&record_at(21, version, &[2, alert]))
+                    .await
+                    .unwrap();
             }
         });
-        let result = probe_robot(&transport, ProtocolVersion::TLS12, 0x2f, Some("localhost")).await;
+        let result = probe_robot(&transport, version, 0x2f, Some("localhost")).await;
         peer.await.unwrap();
         result
     }
@@ -402,10 +530,226 @@ mod tests {
     /// A reproducible alert difference requires the expected valid-block control.
     #[tokio::test]
     async fn repeated_comparable_alerts() {
-        assert!(scripted([20, 40, 20, 20, 20, 40, 20, 20]).await.is_ok());
-        assert!(scripted([20; 8]).await.is_err());
-        assert!(scripted([20, 40, 20, 20, 20, 20, 20, 20]).await.is_err());
-        assert!(scripted([40, 20, 20, 20, 40, 20, 20, 20]).await.is_err());
+        for version in [
+            ProtocolVersion::TLS10,
+            ProtocolVersion::TLS11,
+            ProtocolVersion::TLS12,
+        ] {
+            assert!(
+                scripted([20, 40, 20, 20, 20, 40, 20, 20], version, false)
+                    .await
+                    .is_ok()
+            );
+        }
+        assert!(
+            scripted([20; 8], ProtocolVersion::TLS12, false)
+                .await
+                .is_err()
+        );
+        assert!(
+            scripted(
+                [20, 40, 20, 20, 20, 20, 20, 20],
+                ProtocolVersion::TLS12,
+                false
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            scripted(
+                [40, 20, 20, 20, 40, 20, 20, 20],
+                ProtocolVersion::TLS12,
+                false
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    /// Optional requests get an empty certificate without weakening oracle evidence.
+    #[tokio::test]
+    async fn requested_certificate_framing_and_evidence() {
+        for version in [
+            ProtocolVersion::TLS10,
+            ProtocolVersion::TLS11,
+            ProtocolVersion::TLS12,
+        ] {
+            assert!(
+                scripted([20, 40, 20, 20, 20, 40, 20, 20], version, true)
+                    .await
+                    .is_ok()
+            );
+            assert!(matches!(
+                scripted([20; 8], version, true).await,
+                Err(ProbeError::Unexpected(
+                    "no reproducible RSA padding alert difference"
+                ))
+            ));
+            // Refusal of the empty client certificate cannot confirm an oracle.
+            assert!(matches!(
+                scripted([40; 8], version, true).await,
+                Err(ProbeError::Unexpected(
+                    "no reproducible RSA padding alert difference"
+                ))
+            ));
+        }
+    }
+
+    /// Checks every truncated request and malformed nested vector at each version.
+    #[test]
+    fn certificate_request_validation() {
+        for version in [
+            ProtocolVersion::TLS10,
+            ProtocolVersion::TLS11,
+            ProtocolVersion::TLS12,
+        ] {
+            let request = certificate_request(version);
+            let body = &request[4..];
+            assert!(validate_certificate_request(version, body).is_ok());
+            for len in 0..body.len() {
+                assert!(validate_certificate_request(version, &body[..len]).is_err());
+            }
+            let mut trailing = body.to_vec();
+            trailing.push(0);
+            assert!(validate_certificate_request(version, &trailing).is_err());
+            let mut empty_types = vec![0];
+            empty_types.extend_from_slice(&body[2..]);
+            assert!(validate_certificate_request(version, &empty_types).is_err());
+            let mut prefix = body[..body.len()
+                - if version == ProtocolVersion::TLS10 {
+                    6
+                } else {
+                    2
+                }]
+                .to_vec();
+            for authorities in [
+                vec![0, 1, 0],                // Incomplete distinguished-name length.
+                vec![0, 2, 0, 0],             // Empty distinguished name.
+                vec![0, 3, 0, 2, 0x30],       // Truncated name vector.
+                vec![0, 4, 0, 2, 0x31, 0],    // Not an X.501 Name sequence.
+                vec![0, 5, 0, 3, 0x30, 0, 0], // Trailing data inside the name.
+            ] {
+                let mut invalid = prefix.clone();
+                invalid.extend(authorities);
+                assert!(validate_certificate_request(version, &invalid).is_err());
+            }
+            // Two valid names prove that each nested vector is consumed.
+            prefix.extend_from_slice(&[0, 8, 0, 2, 0x30, 0, 0, 2, 0x30, 0]);
+            assert!(validate_certificate_request(version, &prefix).is_ok());
+        }
+        for invalid in [
+            vec![1, 1, 0, 0, 0, 0],             // Empty signature-algorithm list.
+            vec![1, 1, 0, 1, 4, 0, 0],          // Odd-length list.
+            vec![1, 1, 0xff, 0xff, 4, 1, 0, 0], // Truncated oversized list.
+        ] {
+            assert!(validate_certificate_request(ProtocolVersion::TLS12, &invalid).is_err());
+        }
+        let empty_authorities = [1, 1, 0, 0];
+        assert!(validate_certificate_request(ProtocolVersion::TLS10, &empty_authorities).is_err());
+        assert!(validate_certificate_request(ProtocolVersion::TLS11, &empty_authorities).is_ok());
+        let mut oversized = vec![1, 1, 0xff, 0xff];
+        oversized.extend_from_slice(&[0x30; 32]);
+        assert!(validate_certificate_request(ProtocolVersion::TLS11, &oversized).is_err());
+    }
+
+    /// Reassembles certificate requests split anywhere across handshake records.
+    #[tokio::test]
+    async fn fragmented_certificate_request_flight() {
+        let cert = include_bytes!("testdata/rsa1024.cert.der");
+        let h = server_handshakes(cert);
+        let request = certificate_request(ProtocolVersion::TLS12);
+        let before_done = h.len() - 4;
+        for split in 0..=request.len() {
+            let mut first = h[..before_done].to_vec();
+            first.extend_from_slice(&request[..split]);
+            let mut second = request[split..].to_vec();
+            second.extend_from_slice(&h[before_done..]);
+            let mut bytes = record(22, &first);
+            bytes.extend(record(22, &second));
+            assert_eq!(
+                scripted_flight(bytes).await.unwrap(),
+                RsaFlight {
+                    leaf: cert.to_vec(),
+                    certificate_request: Some(request[4..].to_vec()),
+                }
+            );
+        }
+    }
+
+    /// Rejects malformed, duplicated and out-of-order requests before RSA traffic.
+    #[tokio::test]
+    async fn invalid_certificate_request_flights() {
+        let h = server_handshakes(include_bytes!("testdata/rsa1024.cert.der"));
+        let request = certificate_request(ProtocolVersion::TLS12);
+        let before_done = h.len() - 4;
+        let mut duplicate = h.clone();
+        duplicate.splice(
+            before_done..before_done,
+            request.iter().chain(&request).copied(),
+        );
+        let mut before_certificate = h.clone();
+        before_certificate.splice(42..42, request.clone());
+        let mut before_hello = request.clone();
+        before_hello.extend_from_slice(&h);
+        let mut after_done = h.clone();
+        after_done.extend_from_slice(&request);
+        for bytes in [duplicate, before_certificate, before_hello, after_done] {
+            assert!(matches!(
+                scripted_flight(record(22, &bytes)).await,
+                Err(ProbeError::Unexpected("unexpected RSA server flight"))
+            ));
+        }
+        let mut malformed = h.clone();
+        malformed.splice(before_done..before_done, [13, 0, 0, 1, 0]);
+        assert!(matches!(
+            scripted_flight(record(22, &malformed)).await,
+            Err(ProbeError::Unexpected("invalid RSA certificate request"))
+        ));
+        // A second Certificate cannot follow the request either.
+        let mut repeated_certificate = h[..before_done].to_vec();
+        repeated_certificate.extend_from_slice(&request);
+        repeated_certificate.extend_from_slice(&h[42..]);
+        assert!(matches!(
+            scripted_flight(record(22, &repeated_certificate)).await,
+            Err(ProbeError::Unexpected("unexpected RSA server flight"))
+        ));
+    }
+
+    /// Changes in request presence or contents cannot become padding-oracle evidence.
+    #[tokio::test]
+    async fn changing_certificate_request_is_inconclusive() {
+        let request = certificate_request(ProtocolVersion::TLS12);
+        let mut changed = request.clone();
+        changed[5] = 2; // A different, well-framed certificate-type list.
+        for next in [None, Some(changed)] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let mut transport = Transport::new(listener.local_addr().unwrap());
+            transport.read_timeout = Duration::from_secs(2);
+            let first = request.clone();
+            let peer = tokio::spawn(async move {
+                for (request, alert) in [(Some(first), 20), (next, 40)] {
+                    let (mut stream, _) = listener.accept().await.unwrap();
+                    read_record(&mut stream).await.unwrap();
+                    let mut h = server_handshakes(include_bytes!("testdata/rsa1024.cert.der"));
+                    if let Some(request) = request {
+                        h.splice(h.len() - 4..h.len() - 4, request);
+                    }
+                    stream.write_all(&record(22, &h)).await.unwrap();
+                    for _ in 0..3 {
+                        read_record(&mut stream).await.unwrap();
+                    }
+                    stream.write_all(&record(21, &[2, alert])).await.unwrap();
+                }
+            });
+            let result = probe_robot(&transport, ProtocolVersion::TLS12, 0x2f, None).await;
+            peer.await.unwrap();
+            assert!(matches!(
+                result,
+                Err(ProbeError::Unexpected(
+                    "server certificate request changed during probe"
+                ))
+            ));
+        }
     }
 
     /// A certificate change between connections makes the comparison inconclusive.

@@ -241,8 +241,32 @@ if `gh` is allowed); update it when a session ends.
   OCSP fixtures, 35 audit-runner tests, fmt, workspace Clippy (`-D warnings`),
   workspace tests, MSRV and locked workspace check pass. Full
   `cargo deny check` passes; usual duplicate/license-exception warnings remain.
-  Container tests are ignored locally; CI/review pending. No merge authorization for
-  this follow-up; existing stash and containers remain untouched.
+  Container tests are ignored locally; all CI checks pass, including integration
+  and advisories. Maintainer merged PR #167 at `4c5ae675` (2026-11-16), choosing
+  not to wait for the rate-limited CodeRabbit review. At the maintainer's request,
+  commented on issue #166 with the fix and validation, then closed it as completed.
+  The agent did not merge the PR; existing stash and containers remain untouched.
+
+- ROBOT optional client certificate requests (#160, 2026-11-16): branch
+  `fix/robot-client-certificate` from merged #167 main `4c5ae675`. Preserved
+  the prior rustix closeout note and existing `handoff-local` stash. Accept
+  one request after the server certificate, validate version-specific vectors
+  and DER authority names, and send only an empty client Certificate before
+  each RSA vector. Request presence/content must match between attempts;
+  controls, repeated fatal-alert evidence and eight-connection bound unchanged.
+  Regression failed before the fix; all 13 ROBOT tests pass, covering TLS
+  1.0/1.1/1.2 framing, request fragmentation, malformed/duplicate/order
+  rejection, request changes and required-client-auth refusal. MariaDB CLI
+  integration passes: vectors complete, equal alerts remain not tested.
+  Clean targeted coverage is 707/708 lines (99.86%); request helpers 39/39.
+  Only the existing defensive RSA-modulus guard is uncovered.
+  Maintainer authorized starting stopped existing fixtures and stopping only
+  those started for this task; no container/DNS configuration changes.
+  OCSP fixtures, fmt, workspace tests, final workspace Clippy (`-D warnings`),
+  MSRV and cargo-deny pass. Full sequential container integration: 17/17 pass.
+  Stopped all 12 previously stopped fixtures started for this task; no fixture
+  configuration changes. Human security review required before merge; no
+  merge authorization for this branch. CI/CodeRabbit review pending.
 
 Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.

@@ -675,6 +675,46 @@ fn other_starttls() {
     }
 }
 
+/// MariaDB's optional client certificate request must not stop ROBOT before its vectors.
+#[test]
+#[ignore = "needs tests/servers running"]
+fn mysql_robot_optional_client_certificate() {
+    let s = scan(
+        "127.0.0.1:13306",
+        &[
+            "--starttls",
+            "mysql",
+            "--sni",
+            "localhost",
+            "--ca-file",
+            CA_FILE,
+            "--profile",
+            "quick",
+            "--intrusive",
+            "--format",
+            "json",
+        ],
+    );
+    assert_ne!(s.code, 2, "{}", s.stdout);
+    let report: serde_json::Value = serde_json::from_str(&s.stdout).expect("valid JSON");
+    let robot = report["vulnerabilities"]
+        .as_array()
+        .expect("vulnerabilities")
+        .iter()
+        .find(|v| v["id"] == "robot")
+        .expect("ROBOT result");
+    assert_eq!(robot["status"], "not tested", "{}", s.stdout);
+    assert!(
+        robot["detail"]
+            .as_str()
+            .expect("ROBOT detail")
+            .contains("no reproducible RSA padding alert difference"),
+        "{}",
+        s.stdout
+    );
+    assert!(!s.has("vuln.robot"), "{}", s.stdout);
+}
+
 /// Sends one HTTP/1.1 request to `server` and returns status and body.
 /// Only for replies with a `Content-Length` body.
 fn http(server: &str, method: &str, path: &str, body: &str) -> (u16, String) {

@@ -209,9 +209,9 @@ Not scheduled; pulled into a milestone when someone picks it up.
 - Politeness: `--delay` between connections to one target
 - Bounded parallel probes per target (`--parallel`, #8 as planned, see #89)
 - Intrusive checks are tracked in v0.6.1 (moved from v0.5, #90).
-- ROBOT interoperability: validate optional TLS client certificate requests
-  and send an empty client certificate when appropriate; retain strict
-  evidence and traffic bounds (local MariaDB reproduction,
+- [x] ROBOT interoperability: validate optional TLS client certificate requests
+  and send an empty client certificate when appropriate; preserve request
+  consistency, strict evidence and traffic bounds (local MariaDB reproduction,
   [#160](https://github.com/kjpopov/testls/issues/160)).
 - ROBOT integration coverage: add verified vulnerable and patched server
   fixtures; confirm their observable oracle matches the probe before

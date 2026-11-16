@@ -125,6 +125,9 @@ difference against a `bad_record_mac` control produces a high `vuln.robot`
 finding. Equal alerts, other responses, and unsupported suites are **not
 tested**; they do not establish that the server is safe. Only these padding
 variants and the selected suites are covered; timing oracles are not tested.
+An optional client-certificate request is validated before sending an empty
+certificate; this probe never uses client credentials. Required-client-auth
+refusal and changes to the request between attempts remain **not tested**.
 
 A correlated heartbeat response with an extra payload byte confirms
 `vuln.heartbleed` (critical). Disclosure is limited to one byte beyond the
