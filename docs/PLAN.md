@@ -40,6 +40,8 @@ Two connection paths:
 ### v0.1 — Core scanner CLI
 - [x] Workspace skeleton, CI (fmt, clippy, test, MSRV), static musl build
 - [x] Dependency audit in CI: `cargo deny` (RustSec advisories, bans, licences, sources)
+      Maintenance (2026-11-16): update transitive `rustix` to 1.1.6 for
+      RUSTSEC-2026-0486; keep other locked packages unchanged.
 - [x] Dependabot: weekly grouped updates for crates, GitHub Actions and test images
 - [x] Workflow audit in CI: `zizmor` (pinned actions, least-privilege tokens)
 - [x] Coverage in CI: `cargo llvm-cov` over unit and integration tests
