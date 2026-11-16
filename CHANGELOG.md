@@ -20,6 +20,10 @@ All notable changes to `testls` are listed here. The format follows
 - Local fixture audit runner with a versioned manifest, pinned external
   comparator validation, bounded sequential scans and review-only reports.
 
+### Fixed
+
+- Update transitive `rustix` to 1.1.6 to address RUSTSEC-2026-0486.
+
 ## [0.6.0] - 2026-11-08
 
 ### Added

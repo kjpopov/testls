@@ -225,11 +225,24 @@ if `gh` is allowed); update it when a session ends.
    This successful shape is confirmed by the earlier authorized public output;
    no comparator implementation was inspected. All 35 tests, diff/fmt and
    docstrings pass; both earlier successful comparator captures still parse
-   as complete with their two suites. Fresh CI/review pending after the fix.
-  `cargo deny check` is locally blocked by pre-existing `rustix 1.1.5`
-  RUSTSEC-2026-0486 (fixed in 1.1.6); no dependency change or issue creation.
-  Human security review and merge authorization remain pending for #165;
-  existing `handoff-local` stash is untouched.
+   as complete with their two suites. Final-head CI passed; the maintainer
+   merged #165 on 2026-11-16 at `7353f17`. Rechecked the supplied scanTime
+   finding against merged code: already fixed, with the regression retaining
+   offered suites after an interrupted completion; no follow-up change needed.
+  During #165, local `cargo deny check` was blocked by `rustix 1.1.5`
+  RUSTSEC-2026-0486; that PR did not change dependencies or create an issue.
+  The agent did not merge #165; existing `handoff-local` stash is untouched.
+
+- Rustix advisory maintenance (2026-11-16, `fix/rustix-advisory` from
+  `7353f17`): reproduced RUSTSEC-2026-0486, then updated only the locked
+  transitive `rustix` version/checksum to 1.1.6. Existing Windows dependency
+  edges and all other locked packages are unchanged. No advisory suppression
+  or direct dependency added; exploit reachability in testls is not established.
+  OCSP fixtures, 35 audit-runner tests, fmt, workspace Clippy (`-D warnings`),
+  workspace tests, MSRV and locked workspace check pass. Full
+  `cargo deny check` passes; usual duplicate/license-exception warnings remain.
+  Container tests are ignored locally; CI/review pending. No merge authorization for
+  this follow-up; existing stash and containers remain untouched.
 
 Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.
