@@ -312,6 +312,16 @@ if `gh` is allowed); update it when a session ends.
   Stopped all 12 task-started fixtures without configuration changes. Publish
   this fix in one commit, then reply/resolve the review thread; fresh CI and
   CodeRabbit review required. No dependency/output changes or merge authorization.
+  All CI/Codecov checks passed at `4af59e2`; CodeRabbit found that the locked
+  OID parser also accepts malformed subidentifier contents. Its unterminated
+  OID reproduced acceptance before the fix. Enforce X.690 §8.19.2 minimal,
+  terminated base-128 subidentifiers and reject empty contents, retaining all
+  prior DER checks. Regression tests cover the reported Name, boundaries,
+  leading-zero encodings and valid multi-octet/large arcs without numeric limits.
+  All 15 ROBOT tests, workspace tests, all-target MSRV, Clippy, fmt, OCSP
+  fixtures and cargo-deny pass. Full sequential container rerun: 17/17 pass.
+  Stopped all 12 task-started fixtures without configuration changes. Fresh CI
+  and CodeRabbit review required; no dependency/output changes or merge authorization.
 
 Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.

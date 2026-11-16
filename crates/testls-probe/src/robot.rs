@@ -273,7 +273,7 @@ fn name_container<'a>(body: &mut &'a [u8], tag: Tag) -> Result<&'a [u8], ProbeEr
 /// Requires complete Name/RDN/attribute content (RFC 5280 §4.1.2.4).
 ///
 /// `X509Name`'s parser can discard unread container content; check each level
-/// and require a universal primitive OID attribute type before semantic validation.
+/// and require a universal primitive OID with valid subidentifiers before semantic validation.
 /// No recursion needed.
 fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
     let error = || ProbeError::Unexpected("invalid RSA certificate request");
@@ -288,12 +288,23 @@ fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
         }
         while !attributes.is_empty() {
             let attribute = name_container(&mut attributes, Tag::Sequence)?;
-            // Oid::from_der does not validate its tag in the locked dependency.
+            // Oid::from_der does not validate its tag or contents in the locked dependency.
             let (_, oid) = Any::from_der(attribute).map_err(|_| error())?;
             if oid.header.class() != Class::Universal
                 || oid.header.tag() != Tag::Oid
                 || oid.header.is_constructed()
             {
+                return Err(error());
+            }
+            // X.690 §8.19.2: nonempty minimal base-128 subidentifiers, all terminated.
+            let mut at_start = true;
+            for &byte in oid.data {
+                if at_start && byte == 0x80 {
+                    return Err(error());
+                }
+                at_start = byte & 0x80 == 0;
+            }
+            if oid.data.is_empty() || !at_start {
                 return Err(error());
             }
             let (value, _) = Oid::from_der(attribute).map_err(|_| error())?;
@@ -736,7 +747,7 @@ mod tests {
         }
     }
 
-    /// Rejects unread container content and malformed authority-name field tags.
+    /// Rejects unread content, malformed field tags and invalid authority OIDs.
     #[test]
     fn certificate_authority_container_consumption() {
         let valid = [0x30, 12, 0x31, 10, 0x30, 8, 6, 3, 0x55, 4, 3, 0x0c, 1, b'a'];
@@ -755,6 +766,10 @@ mod tests {
             (vec![0x30, 4, 0x31, 2, 0x31, 0], false), // Attribute must be a SEQUENCE.
             (vec![0x30, 6, 0x31, 4, 0x30, 2, 5, 0], false), // Missing attribute OID.
             (vec![0x30, 9, 0x31, 7, 0x30, 5, 5, 0, 0x0c, 1, b'a'], false), // NULL attribute type, despite a valid value.
+            (
+                vec![0x30, 10, 0x31, 8, 0x30, 6, 6, 1, 0x81, 0x0c, 1, b'a'],
+                false,
+            ), // Unterminated OID subidentifier.
             (vec![0x30, 7, 0x31, 5, 0x30, 3, 6, 1, 0x55], false),          // Missing value.
             ([&[0x30, 13][..], &valid[2..], &[0xff]].concat(), false),
             (
@@ -785,6 +800,42 @@ mod tests {
             let mut invalid = valid;
             invalid[6] = tag; // Non-OID, non-universal or constructed attribute type.
             assert!(validate_authority_name(&invalid).is_err(), "tag {tag:#04x}");
+        }
+    }
+
+    /// Checks OID subidentifier boundaries and minimal base-128 encoding in requests.
+    #[test]
+    fn certificate_authority_oid_subidentifiers() {
+        for (contents, accepted) in [
+            (vec![0], true),
+            (vec![0x2a], true),
+            (vec![0x55, 4, 3], true),
+            (vec![0x81, 0], true),
+            (vec![0x2a, 0x81, 0], true),
+            (vec![0x2a, 0x81, 0x80, 0], true),
+            (vec![0x2a, 0, 1], true),
+            ([&[0xff; 16][..], &[0x7f]].concat(), true), // No machine-integer arc bound.
+            (vec![], false),
+            (vec![0x81], false),
+            (vec![0x80, 0], false),
+            (vec![0x2a, 0x80, 0], false),
+            (vec![0x2a, 0x81], false),
+            (vec![0x2a, 0x81, 0, 0x80, 1], false),
+            (vec![0x2a, 0x81, 0x80], false),
+        ] {
+            let len = u8::try_from(contents.len()).unwrap();
+            let mut name = vec![0x30, len + 9, 0x31, len + 7, 0x30, len + 5, 6, len];
+            name.extend_from_slice(&contents);
+            name.extend_from_slice(&[0x0c, 1, b'a']);
+            let mut request = vec![1, 1, 0, 2, 4, 1];
+            request.extend_from_slice(&u16::try_from(name.len() + 2).unwrap().to_be_bytes());
+            request.extend_from_slice(&u16::try_from(name.len()).unwrap().to_be_bytes());
+            request.extend_from_slice(&name);
+            assert_eq!(
+                validate_certificate_request(ProtocolVersion::TLS12, &request).is_ok(),
+                accepted,
+                "OID contents {contents:02x?}"
+            );
         }
     }
 
