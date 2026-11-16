@@ -285,6 +285,23 @@ if `gh` is allowed); update it when a session ends.
   Full sequential container rerun: 17/17 pass; stopped all 12 task-started
   fixtures again, without configuration/DNS changes. Request CodeRabbit
   after publishing all review fixes together; no merge authorization.
+  CodeRabbit reviewed `5cb345c` after all CI/Codecov checks passed and requested
+  two fixes. Its malformed authority Name (`30 01 ff`) reproduced acceptance
+  before the fix: the X.509 parser discarded unread container content. Check
+  complete Name/RDN/attribute consumption using the RFC 5280 §4.1.2.4 shape,
+  then retain existing semantic validation. Regression covers unread bytes at
+  every level, malformed tags/missing fields, multiple RDNs/attributes and a
+  real certificate subject. A bounded test-only relay now observes all eight
+  unchanged MariaDB exchanges: each real server CertificateRequest and an
+  empty client Certificate immediately before CKE. Keep the CLI's equal-alert
+  not-tested/no-finding assertions; no public output/schema change. All 14
+  ROBOT unit tests, workspace tests and the real MariaDB relay/CLI regression
+  pass. OCSP fixtures, fmt, cargo-deny, final Clippy (`-D warnings`) and MSRV
+  including all test targets pass. Full sequential container integration:
+  17/17 pass, including the transparent MariaDB observation. Stopped all 12
+  task-started fixtures, without container/DNS configuration changes. Publish
+  both review fixes in one commit and reply/resolve the two threads; fresh
+  CI/CodeRabbit review required. No merge authorization.
 
 Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.

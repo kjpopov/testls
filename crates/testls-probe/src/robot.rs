@@ -11,6 +11,7 @@ use testls_wire::{
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
+use x509_parser::asn1_rs::{Any, Class, Oid, Tag};
 use x509_parser::prelude::{FromDer, X509Name};
 use x509_parser::public_key::PublicKey;
 
@@ -246,9 +247,51 @@ fn validate_certificate_request(
     }
     while !authorities.is_empty() {
         let name = request_vector(&mut authorities)?;
+        validate_authority_name(name)?;
         let (rest, _) = X509Name::from_der(name).map_err(|_| error())?;
         if !rest.is_empty() {
             return Err(error());
+        }
+    }
+    Ok(())
+}
+
+/// Consumes one definite-length DER container without discarding inner bytes.
+fn name_container<'a>(body: &mut &'a [u8], tag: Tag) -> Result<&'a [u8], ProbeError> {
+    let error = || ProbeError::Unexpected("invalid RSA certificate request");
+    let (rest, value) = Any::from_der(body).map_err(|_| error())?;
+    if value.header.class() != Class::Universal
+        || value.header.tag() != tag
+        || !value.header.is_constructed()
+    {
+        return Err(error());
+    }
+    *body = rest;
+    Ok(value.data)
+}
+
+/// Requires complete Name/RDN/attribute content (RFC 5280 §4.1.2.4).
+///
+/// `X509Name`'s parser can discard unread container content; check each level
+/// before using it for the existing semantic validation. No recursion needed.
+fn validate_authority_name(mut name: &[u8]) -> Result<(), ProbeError> {
+    let error = || ProbeError::Unexpected("invalid RSA certificate request");
+    let mut rdns = name_container(&mut name, Tag::Sequence)?;
+    if !name.is_empty() {
+        return Err(error());
+    }
+    while !rdns.is_empty() {
+        let mut attributes = name_container(&mut rdns, Tag::Set)?;
+        if attributes.is_empty() {
+            return Err(error());
+        }
+        while !attributes.is_empty() {
+            let attribute = name_container(&mut attributes, Tag::Sequence)?;
+            let (value, _) = Oid::from_der(attribute).map_err(|_| error())?;
+            let (rest, _) = Any::from_der(value).map_err(|_| error())?;
+            if !rest.is_empty() {
+                return Err(error());
+            }
         }
     }
     Ok(())
@@ -682,6 +725,52 @@ mod tests {
                 }
             );
         }
+    }
+
+    /// Rejects unread content inside DER Name, RDN and attribute containers.
+    #[test]
+    fn certificate_authority_container_consumption() {
+        let valid = [0x30, 12, 0x31, 10, 0x30, 8, 6, 3, 0x55, 4, 3, 0x0c, 1, b'a'];
+        for (name, accepted) in [
+            (valid.to_vec(), true),
+            ([&[0x30, 24][..], &valid[2..], &valid[2..]].concat(), true),
+            (
+                [&[0x30, 22, 0x31, 20][..], &valid[4..], &valid[4..]].concat(),
+                true,
+            ),
+            (vec![0x30, 1, 0xff], false),
+            (vec![0x10, 0], false),                   // Primitive SEQUENCE.
+            (vec![0xb0, 0], false),                   // Non-universal SEQUENCE tag.
+            (vec![0x30, 0, 0], false),                // Bytes after the Name.
+            (vec![0x30, 2, 0x30, 0], false),          // RDN must be a SET.
+            (vec![0x30, 4, 0x31, 2, 0x31, 0], false), // Attribute must be a SEQUENCE.
+            (vec![0x30, 6, 0x31, 4, 0x30, 2, 5, 0], false), // Missing attribute OID.
+            (vec![0x30, 7, 0x31, 5, 0x30, 3, 6, 1, 0x55], false), // Missing value.
+            ([&[0x30, 13][..], &valid[2..], &[0xff]].concat(), false),
+            (
+                [&[0x30, 13, 0x31, 11][..], &valid[4..], &[0xff]].concat(),
+                false,
+            ),
+            (
+                [&[0x30, 13, 0x31, 11, 0x30, 9][..], &valid[6..], &[0xff]].concat(),
+                false,
+            ),
+            (vec![0x30, 2, 0x31, 0], false),
+        ] {
+            let mut request = vec![1, 1, 0, 2, 4, 1];
+            request.extend_from_slice(&u16::try_from(name.len() + 2).unwrap().to_be_bytes());
+            request.extend_from_slice(&u16::try_from(name.len()).unwrap().to_be_bytes());
+            request.extend_from_slice(&name);
+            assert_eq!(
+                validate_certificate_request(ProtocolVersion::TLS12, &request).is_ok(),
+                accepted,
+                "{name:02x?}"
+            );
+        }
+        let (_, cert) =
+            x509_parser::parse_x509_certificate(include_bytes!("testdata/rsa1024.cert.der"))
+                .unwrap();
+        assert!(validate_authority_name(cert.subject().as_raw()).is_ok());
     }
 
     /// Rejects malformed, duplicated and out-of-order requests before RSA traffic.
