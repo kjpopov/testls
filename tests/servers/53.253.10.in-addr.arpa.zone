@@ -19,3 +19,9 @@ $TTL 3600
 38  IN PTR robot-wolfssl.fixtures.test.
 39  IN PTR robot-wolfssl-patched.fixtures.test.
 53  IN PTR ns.fixtures.test.
+; Unassigned hosts get the same generated names as other peers (Corefile).
+$GENERATE 2-9     $ PTR ip-10-253-53-$.peer.fixtures.test.
+$GENERATE 12-20   $ PTR ip-10-253-53-$.peer.fixtures.test.
+$GENERATE 28-34   $ PTR ip-10-253-53-$.peer.fixtures.test.
+$GENERATE 40-52   $ PTR ip-10-253-53-$.peer.fixtures.test.
+$GENERATE 54-254  $ PTR ip-10-253-53-$.peer.fixtures.test.

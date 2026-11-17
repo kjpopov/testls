@@ -24,9 +24,18 @@ peer.fixtures.test {
     template IN A {
         match "^ip-(?P<a>[0-9]+)-(?P<b>[0-9]+)-(?P<c>[0-9]+)-(?P<d>[0-9]+)[.]peer[.]fixtures[.]test[.]$"
         answer "{{ .Name }} 3600 IN A {{ .Group.a }}.{{ .Group.b }}.{{ .Group.c }}.{{ .Group.d }}"
+        fallthrough
+    }
+    # Other types for a generated name: NODATA (RFC 2308 section 2.2), so a
+    # resolver asking AAAA first still goes on to ask for the A record.
+    template IN ANY {
+        match "^ip-[0-9]+-[0-9]+-[0-9]+-[0-9]+[.]peer[.]fixtures[.]test[.]$"
+        authority "fixtures.test. 3600 IN SOA ns.fixtures.test. hostmaster.fixtures.test. 1 3600 600 86400 3600"
+        fallthrough
     }
     template IN ANY {
         rcode NXDOMAIN
+        authority "fixtures.test. 3600 IN SOA ns.fixtures.test. hostmaster.fixtures.test. 1 3600 600 86400 3600"
     }
     errors
 }
