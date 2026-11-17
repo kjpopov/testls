@@ -1013,6 +1013,98 @@ fn assert_wolfssl_robot_not_tested(addr: &str) {
     assert!(!scan.has("[vuln.robot]"), "{}", scan.stdout);
 }
 
+/// Reads one TLS record from a blocking stream: `(type, body)`.
+fn read_tls_record(stream: &mut TcpStream) -> std::io::Result<(u8, Vec<u8>)> {
+    let mut header = [0; 5];
+    stream.read_exact(&mut header)?;
+    let mut body = vec![0; usize::from(u16::from_be_bytes([header[3], header[4]]))];
+    stream.read_exact(&mut body)?;
+    Ok((header[0], body))
+}
+
+/// Encrypts a TLS 1.2 RSA premaster block for the leaf certificate's key.
+///
+/// RFC 8017 §7.2.1 / RFC 5246 §7.4.7.1: `00 02 PS 00 03 03 random[46]`.
+/// With `valid == false` the block type is `01`, which a correct EME-PKCS1
+/// decoder must reject.
+fn rsa_premaster(leaf: &[u8], valid: bool) -> Vec<u8> {
+    use num_bigint::BigUint;
+    use x509_parser::public_key::PublicKey;
+    let (_, cert) = x509_parser::parse_x509_certificate(leaf).expect("leaf certificate");
+    let PublicKey::RSA(key) = cert.public_key().parsed().expect("public key") else {
+        panic!("fixture certificate has no RSA key");
+    };
+    let modulus = BigUint::from_bytes_be(key.modulus);
+    let len = modulus.to_bytes_be().len();
+    let mut block = vec![0x55; len];
+    block[0] = 0;
+    block[1] = if valid { 2 } else { 1 };
+    block[len - 49] = 0;
+    block[len - 48..len - 46].copy_from_slice(&[3, 3]);
+    let encrypted = BigUint::from_bytes_be(&block)
+        .modpow(&BigUint::from_bytes_be(key.exponent), &modulus)
+        .to_bytes_be();
+    let mut out = vec![0; len - encrypted.len()];
+    out.extend_from_slice(&encrypted);
+    out
+}
+
+/// Sends only a `ClientKeyExchange` and reports whether the server closes
+/// within two seconds (`true`) or keeps waiting for `ChangeCipherSpec`.
+fn wolfssl_closes_after_cke(addr: &str, valid: bool) -> bool {
+    wait_for(addr);
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("set read timeout");
+    let hello =
+        testls_probe::hello::client_hello(testls_wire::ProtocolVersion::TLS12, vec![0x002f], None)
+            .encode()
+            .expect("encode hello");
+    stream.write_all(&hello).expect("send hello");
+    let mut pending = Vec::new();
+    let mut leaf = None;
+    'flight: loop {
+        let (typ, body) = read_tls_record(&mut stream).expect("server flight");
+        assert_eq!(typ, 22, "unexpected record in server flight");
+        pending.extend_from_slice(&body);
+        let mut offset = 0;
+        while let Some((message, used)) =
+            testls_wire::parse_handshake(&pending[offset..]).expect("handshake")
+        {
+            offset += used;
+            match message.typ {
+                testls_wire::handshake_type::CERTIFICATE => {
+                    leaf = testls_wire::parse_certificate_list(message.body)
+                        .expect("certificate list")
+                        .into_iter()
+                        .next();
+                }
+                testls_wire::handshake_type::SERVER_HELLO_DONE => break 'flight,
+                _ => {}
+            }
+        }
+        pending.drain(..offset);
+    }
+    let encrypted = rsa_premaster(&leaf.expect("server certificate"), valid);
+    let len = u16::try_from(encrypted.len()).unwrap();
+    let mut record = vec![22, 3, 3];
+    record.extend_from_slice(&(len + 6).to_be_bytes());
+    record.extend_from_slice(&[16, 0]);
+    record.extend_from_slice(&(len + 2).to_be_bytes());
+    record.extend_from_slice(&len.to_be_bytes());
+    record.extend_from_slice(&encrypted);
+    stream.write_all(&record).expect("send ClientKeyExchange");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("set read timeout");
+    let mut byte = [0; 1];
+    !matches!(
+        stream.read(&mut byte),
+        Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut)
+    )
+}
+
 /// wolfSSL 3.12.2 (CVE-2017-13099) leaks padding validity by closing early,
 /// not by a differing fatal alert, so ROBOT stays not tested (decision #103).
 #[test]
@@ -1021,9 +1113,26 @@ fn robot_wolfssl_vulnerable_server() {
     assert_wolfssl_robot_not_tested("127.0.0.1:14438");
 }
 
+/// Confirms the 3.12.2 fixture still exposes the flow oracle independently of
+/// the scanner: a valid block waits, a malformed one closes at once.
+#[test]
+#[ignore = "needs tests/servers running"]
+fn robot_wolfssl_vulnerable_flow_oracle() {
+    assert!(!wolfssl_closes_after_cke("127.0.0.1:14438", true));
+    assert!(wolfssl_closes_after_cke("127.0.0.1:14438", false));
+}
+
 /// wolfSSL 3.13.0 (fixed) must never produce a ROBOT finding.
 #[test]
 #[ignore = "needs tests/servers running"]
 fn robot_wolfssl_patched_server() {
     assert_wolfssl_robot_not_tested("127.0.0.1:14439");
+}
+
+/// Confirms the 3.13.0 fixture waits for `ChangeCipherSpec` after both blocks.
+#[test]
+#[ignore = "needs tests/servers running"]
+fn robot_wolfssl_patched_flow_oracle() {
+    assert!(!wolfssl_closes_after_cke("127.0.0.1:14439", true));
+    assert!(!wolfssl_closes_after_cke("127.0.0.1:14439", false));
 }

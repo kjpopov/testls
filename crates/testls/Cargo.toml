@@ -38,7 +38,9 @@ tokio = { workspace = true, features = ["macros", "rt", "net", "signal", "sync",
 toml.workspace = true
 
 [dev-dependencies]
+num-bigint.workspace = true
 rustls.workspace = true
+x509-parser.workspace = true
 
 [lints]
 workspace = true
