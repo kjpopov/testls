@@ -1576,6 +1576,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "clap_mangen",
+ "num-bigint 0.5.1",
  "rustls",
  "serde",
  "serde_json",
@@ -1587,6 +1588,7 @@ dependencies = [
  "testls-wire",
  "tokio",
  "toml",
+ "x509-parser",
 ]
 
 [[package]]

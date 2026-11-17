@@ -10,6 +10,8 @@
     {"name": "heartbleed", "port": 14435, "starttls": null, "protocols": ["TLSv1.2"], "vulnerabilities": {"heartbleed": "vulnerable", "ccs_injection": "vulnerable"}},
     {"name": "heartbleed-patched", "port": 14436, "starttls": null, "protocols": ["TLSv1.2"], "vulnerabilities": {"heartbleed": "no_positive", "ccs_injection": "vulnerable"}},
     {"name": "ccs-patched", "port": 14437, "starttls": null, "protocols": ["TLSv1.2"], "vulnerabilities": {"heartbleed": "no_positive", "ccs_injection": "no_positive"}},
+    {"name": "robot-wolfssl", "port": 14438, "starttls": null, "protocols": ["TLSv1.2"], "vulnerabilities": {"robot": "vulnerable"}},
+    {"name": "robot-wolfssl-patched", "port": 14439, "starttls": null, "protocols": ["TLSv1.2"], "vulnerabilities": {"robot": "no_positive"}},
     {"name": "smtp", "port": 14425, "starttls": "smtp", "protocols": ["TLSv1.2", "TLSv1.3"]},
     {"name": "imap", "port": 14143, "starttls": "imap", "protocols": ["TLSv1.2", "TLSv1.3"]},
     {"name": "pop3", "port": 14110, "starttls": "pop3", "protocols": ["TLSv1.2", "TLSv1.3"]},

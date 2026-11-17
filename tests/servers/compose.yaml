@@ -104,3 +104,21 @@ services:
         OPENSSL_RELEASE: OpenSSL_1_0_1h
         OPENSSL_SHA256: 4844f4631e5731db188293b2b7d61ecf79d57c3cb7bdb8abf9ab2fbd0a65da23
     ports: ["127.0.0.1:14437:4433"]
+
+  # wolfSSL 3.12.2 is affected by ROBOT (CVE-2017-13099); 3.13.0 is fixed.
+  # The affected release closes early instead of sending a differing fatal
+  # alert, so testls reports ROBOT as not tested on both (decision #103).
+  robot-wolfssl:
+    build:
+      context: .
+      dockerfile: Dockerfile.wolfssl
+    ports: ["127.0.0.1:14438:4433"]
+
+  robot-wolfssl-patched:
+    build:
+      context: .
+      dockerfile: Dockerfile.wolfssl
+      args:
+        WOLFSSL_RELEASE: v3.13.0-stable
+        WOLFSSL_SHA256: 3bafeb0cb7eaff80002ba3f7cbb70023757bcc35fc4d82181945b143f1f927c6
+    ports: ["127.0.0.1:14439:4433"]

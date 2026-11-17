@@ -19,6 +19,9 @@ All notable changes to `testls` are listed here. The format follows
   finding for a repeated alert difference; inconclusive results remain untested.
 - Local fixture audit runner with a versioned manifest, pinned external
   comparator validation, bounded sequential scans and review-only reports.
+- wolfSSL 3.12.2 and 3.13.0 ROBOT integration fixtures. The affected release
+  leaks padding validity by closing early, not by a fatal alert, so testls
+  reports ROBOT as not tested on both; flow detection is tracked in #175.
 
 ### Fixed
 
