@@ -1,8 +1,12 @@
 //! Opt-in RSA padding oracle probe (ROBOT; RFC 5246 §7.4.7.1 and RFC 8017 §7.2).
 //!
-//! Compares fatal alerts for a valid PKCS#1 v1.5 block and several malformed
-//! blocks. A repeated difference against a bad-record-MAC control is evidence
-//! of an oracle; identical or unobservable responses are inconclusive.
+//! Compares a valid PKCS#1 v1.5 block against several malformed blocks two
+//! ways: the fatal alert after a bogus encrypted `Finished`, and whether the
+//! server answers a lone `ClientKeyExchange` before the client's `Finished`.
+//! A repeated difference against a bad-record-MAC control is evidence of an
+//! oracle; identical or unobservable responses are inconclusive.
+
+use std::time::Duration;
 
 use num_bigint::BigUint;
 use testls_wire::{
@@ -10,7 +14,7 @@ use testls_wire::{
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout, timeout_at};
 use x509_parser::asn1_rs::{Any, Class, Oid, Tag};
 use x509_parser::prelude::{FromDer, X509Name};
 use x509_parser::public_key::PublicKey;
@@ -88,6 +92,174 @@ pub async fn probe_robot(
     }
 }
 
+/// Tests one measured static RSA suite for a repeated flow difference.
+///
+/// Sends only the `ClientKeyExchange`: a server that validates the RSA padding
+/// before the client's `Finished` answers a malformed block at once, while a
+/// correct implementation waits. Requires the valid block to wait and at least
+/// one malformed block to answer, reproducibly, for the same certificate and
+/// client-authentication policy. Silence, equal flows and protocol errors are
+/// inconclusive.
+///
+/// # Errors
+/// Returns an error when no reproducible flow difference is observed or a
+/// handshake cannot be compared safely.
+pub async fn probe_robot_flow(
+    transport: &Transport,
+    version: ProtocolVersion,
+    suite: u16,
+    sni: Option<&str>,
+) -> Result<(), ProbeError> {
+    if !(ProtocolVersion::TLS10..=ProtocolVersion::TLS12).contains(&version)
+        || !testls_data::cipher_suite(suite).is_some_and(|c| c.name.starts_with("TLS_RSA_WITH_"))
+    {
+        return Err(ProbeError::Unexpected("not a static RSA TLS suite"));
+    }
+    let mut previous: Option<RsaFlight> = None;
+    let mut responses = [[Flow::Waiting; 4]; 2];
+    for round in &mut responses {
+        for (kind, response) in round.iter_mut().enumerate() {
+            let (current, flow) = flow_attempt(transport, version, suite, sni, kind).await?;
+            if previous.as_ref().is_some_and(|p| p.leaf != current.leaf) {
+                return Err(ProbeError::Unexpected(
+                    "server certificate changed during probe",
+                ));
+            }
+            if previous
+                .as_ref()
+                .is_some_and(|p| p.certificate_request != current.certificate_request)
+            {
+                return Err(ProbeError::Unexpected(
+                    "server certificate request changed during probe",
+                ));
+            }
+            previous = Some(current);
+            *response = flow;
+        }
+    }
+    if responses[0] == responses[1]
+        && responses[0][0] == Flow::Waiting
+        && responses[0][1..].contains(&Flow::Responded)
+    {
+        Ok(())
+    } else {
+        Err(ProbeError::Unexpected(
+            "no reproducible RSA padding flow difference",
+        ))
+    }
+}
+
+/// How a server answered a lone `ClientKeyExchange`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Flow {
+    /// Nothing arrived before the flow deadline: the server waits for the
+    /// client's `Finished` (RFC 5246 §7.4.9).
+    Waiting,
+    /// An alert arrived, or the server closed the connection.
+    Responded,
+}
+
+/// Bounds how long the flow oracle waits for a server to answer a lone
+/// `ClientKeyExchange`; a correct server may wait for `Finished` indefinitely.
+const FLOW_READ_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Sends only a `ClientKeyExchange` and reports whether the server answers
+/// before the flow deadline.
+async fn flow_attempt(
+    transport: &Transport,
+    version: ProtocolVersion,
+    suite: u16,
+    sni: Option<&str>,
+    kind: usize,
+) -> Result<(RsaFlight, Flow), ProbeError> {
+    let hello = client_hello(version, vec![suite], sni)
+        .encode()
+        .map_err(ProbeError::Encode)?;
+    let mut stream = transport.connect().await?;
+    let received = timeout(transport.read_timeout, async {
+        stream.write_all(&hello).await.map_err(ProbeError::Io)?;
+        let received = flight(&mut stream, version, suite).await?;
+        let request = exchange_record(&received, version, kind)?;
+        stream.write_all(&request).await.map_err(ProbeError::Io)?;
+        Ok::<_, ProbeError>(received)
+    })
+    .await
+    .map_err(|_| ProbeError::Timeout)??;
+    let expiry = Instant::now() + transport.read_timeout.min(FLOW_READ_TIMEOUT);
+    let flow = flow_answer(&mut stream, expiry).await?;
+    Ok((received, flow))
+}
+
+/// Classifies the server's answer to a lone `ClientKeyExchange` after the flow
+/// deadline.
+///
+/// No bytes before the deadline is [`Flow::Waiting`]. A close (EOF or reset)
+/// before any byte arrives, or one complete alert record (RFC 5246 §7.2), is
+/// [`Flow::Responded`]. Anything else is inconclusive: other I/O errors, any other record type,
+/// such as a zero-length `Handshake` fragment that RFC 5246 §6.2.1 forbids, or a
+/// record that stalls or is cut off after it starts.
+async fn flow_answer(stream: &mut TcpStream, expiry: Instant) -> Result<Flow, ProbeError> {
+    // Peek first: `read_record` consumes a header before it can time out, so a
+    // record that stalls partway would otherwise look like silence.
+    match timeout_at(expiry, stream.peek(&mut [0u8; 1])).await {
+        Err(_) => Ok(Flow::Waiting),
+        Ok(Ok(0)) => Ok(Flow::Responded),
+        Ok(Err(error)) if is_close(&error) => Ok(Flow::Responded),
+        Ok(Err(error)) => Err(ProbeError::Io(error)),
+        // One expiry for both steps, so a split record cannot extend the deadline.
+        Ok(Ok(_)) => match timeout_at(expiry, read_record(stream)).await {
+            Ok(Ok((21, _, body))) if body.len() == 2 => Ok(Flow::Responded),
+            Ok(Ok(_)) => Err(ProbeError::Unexpected("non-alert record during flow probe")),
+            Ok(Err(ProbeError::Io(_))) | Err(_) => Err(ProbeError::Unexpected(
+                "incomplete record during flow probe",
+            )),
+            Ok(Err(error)) => Err(error),
+        },
+    }
+}
+
+/// Reports whether an I/O error means the peer closed or reset the connection.
+fn is_close(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind::{BrokenPipe, ConnectionAborted, ConnectionReset, UnexpectedEof};
+    matches!(
+        error.kind(),
+        ConnectionReset | ConnectionAborted | BrokenPipe | UnexpectedEof
+    )
+}
+
+/// Wraps a client key exchange in a handshake record, with an empty
+/// `Certificate` first when the server requested one (RFC 2246/4346/5246
+/// §7.4.6–7).
+fn exchange_record(
+    received: &RsaFlight,
+    version: ProtocolVersion,
+    kind: usize,
+) -> Result<Vec<u8>, ProbeError> {
+    let encrypted = ciphertext(&received.leaf, version, kind)?;
+    let len =
+        u16::try_from(encrypted.len()).map_err(|_| ProbeError::Unexpected("RSA key too large"))?;
+    // Four handshake-header bytes and two ciphertext-length bytes for CKE.
+    let mut body = Vec::with_capacity(encrypted.len() + 6 + EMPTY_CERTIFICATE_HANDSHAKE.len());
+    if received.certificate_request.is_some() {
+        // No credentials: the empty Certificate immediately precedes the
+        // ClientKeyExchange, in the same record.
+        body.extend_from_slice(&EMPTY_CERTIFICATE_HANDSHAKE);
+    }
+    body.extend_from_slice(&[16, 0]);
+    body.extend_from_slice(&(len + 2).to_be_bytes());
+    body.extend_from_slice(&len.to_be_bytes());
+    body.extend_from_slice(&encrypted);
+    let [major, minor] = version.0.to_be_bytes();
+    let mut request = vec![22, major, minor];
+    request.extend_from_slice(
+        &u16::try_from(body.len())
+            .map_err(|_| ProbeError::Unexpected("RSA key too large"))?
+            .to_be_bytes(),
+    );
+    request.extend_from_slice(&body);
+    Ok(request)
+}
+
 /// Performs one handshake through a bogus encrypted Finished record.
 async fn attempt(
     transport: &Transport,
@@ -103,28 +275,8 @@ async fn attempt(
     timeout(transport.read_timeout, async {
         stream.write_all(&hello).await.map_err(ProbeError::Io)?;
         let received = flight(&mut stream, version, suite).await?;
-        let encrypted = ciphertext(&received.leaf, version, kind)?;
-        let len = u16::try_from(encrypted.len())
-            .map_err(|_| ProbeError::Unexpected("RSA key too large"))?;
-        // Four handshake-header bytes and two ciphertext-length bytes for CKE.
-        let mut body = Vec::with_capacity(encrypted.len() + 6 + EMPTY_CERTIFICATE_HANDSHAKE.len());
-        if received.certificate_request.is_some() {
-            // RFC 2246/4346/5246 §7.4.6–7: no credentials; empty Certificate
-            // immediately precedes ClientKeyExchange, in the same record.
-            body.extend_from_slice(&EMPTY_CERTIFICATE_HANDSHAKE);
-        }
-        body.extend_from_slice(&[16, 0]);
-        body.extend_from_slice(&(len + 2).to_be_bytes());
-        body.extend_from_slice(&len.to_be_bytes());
-        body.extend_from_slice(&encrypted);
+        let mut request = exchange_record(&received, version, kind)?;
         let [major, minor] = version.0.to_be_bytes();
-        let mut request = vec![22, major, minor];
-        request.extend_from_slice(
-            &u16::try_from(body.len())
-                .map_err(|_| ProbeError::Unexpected("RSA key too large"))?
-                .to_be_bytes(),
-        );
-        request.extend_from_slice(&body);
         request.extend_from_slice(&[20, major, minor, 0, 1, 1, 22, major, minor, 0, 64]);
         request.extend_from_slice(&[0; 64]);
         stream.write_all(&request).await.map_err(ProbeError::Io)?;
@@ -739,6 +891,223 @@ mod tests {
             .await
             .is_err()
         );
+    }
+
+    /// How the scripted flow peer answers a lone client key exchange.
+    #[derive(Clone, Copy)]
+    enum Answer {
+        /// A fatal alert.
+        Alert,
+        /// A close without any alert.
+        Close,
+        /// Hold the connection past the flow deadline.
+        Wait,
+        /// A zero-length handshake record (not valid flow evidence).
+        EmptyHandshake,
+        /// A record header whose declared body never arrives.
+        PartialRecord,
+    }
+
+    /// Runs `probe_robot_flow` against a scripted peer. Valid attempts are
+    /// indices 0 and 4 of the interleaved rounds.
+    async fn scripted_flow(answer: fn(usize) -> Answer) -> Result<(), ProbeError> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut transport = Transport::new(listener.local_addr().unwrap());
+        transport.read_timeout = Duration::from_millis(200);
+        let cert = include_bytes!("testdata/rsa1024.cert.der").as_slice();
+        let peer = tokio::spawn(async move {
+            for index in 0..8 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                read_record(&mut stream).await.unwrap();
+                stream.write_all(&server_flight(cert)).await.unwrap();
+                let (typ, _, _) = read_record(&mut stream).await.unwrap();
+                assert_eq!(typ, 22, "only the ClientKeyExchange arrives");
+                match answer(index) {
+                    Answer::Alert => stream.write_all(&record(21, &[2, 20])).await.unwrap(),
+                    // Let the stream drop, closing the connection.
+                    Answer::Close => {}
+                    // Outlive the 200 ms flow deadline without blocking the
+                    // next accept.
+                    Answer::Wait => {
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(400)).await;
+                            drop(stream);
+                        });
+                    }
+                    // RFC 5246 §6.2.1 forbids zero-length Handshake fragments.
+                    Answer::EmptyHandshake => stream.write_all(&record(22, &[])).await.unwrap(),
+                    // Declare a body that never arrives, then outlive the
+                    // deadline so the body read times out.
+                    Answer::PartialRecord => {
+                        stream.write_all(&[22, 3, 3, 0, 1]).await.unwrap();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(400)).await;
+                            drop(stream);
+                        });
+                    }
+                }
+            }
+        });
+        let result =
+            probe_robot_flow(&transport, ProtocolVersion::TLS12, 0x2f, Some("localhost")).await;
+        // An inconclusive attempt stops the probe early; the peer would wait
+        // for the remaining connections forever.
+        if result.is_ok() {
+            peer.await.unwrap();
+        } else {
+            peer.abort();
+        }
+        result
+    }
+
+    /// A valid block that waits while a malformed one answers is a flow oracle.
+    #[tokio::test]
+    async fn repeated_flow_difference() {
+        // Valid attempts (0, 4) wait; the malformed ones answer.
+        assert!(
+            scripted_flow(|index| if index % 4 == 0 {
+                Answer::Wait
+            } else {
+                Answer::Alert
+            })
+            .await
+            .is_ok()
+        );
+        // A close is an answer too, without any alert.
+        assert!(
+            scripted_flow(|index| if index % 4 == 0 {
+                Answer::Wait
+            } else {
+                Answer::Close
+            })
+            .await
+            .is_ok()
+        );
+    }
+
+    /// A non-alert record or a stalled record body is inconclusive, not an
+    /// answer, so it never becomes padding-oracle evidence.
+    #[tokio::test]
+    async fn non_alert_and_partial_flow_records_are_inconclusive() {
+        for (answer, message) in [
+            (
+                (|index| {
+                    if index % 4 == 0 {
+                        Answer::Wait
+                    } else {
+                        Answer::EmptyHandshake
+                    }
+                }) as fn(usize) -> Answer,
+                "non-alert record during flow probe",
+            ),
+            (
+                (|index| {
+                    if index % 4 == 0 {
+                        Answer::Wait
+                    } else {
+                        Answer::PartialRecord
+                    }
+                }) as fn(usize) -> Answer,
+                "incomplete record during flow probe",
+            ),
+        ] {
+            assert!(matches!(
+                scripted_flow(answer).await,
+                Err(ProbeError::Unexpected(got)) if got == message
+            ));
+        }
+    }
+
+    /// Only I/O errors that mean the peer closed the connection count as an
+    /// answer; any other error stays inconclusive.
+    #[test]
+    fn close_errors() {
+        use std::io::{Error, ErrorKind};
+        for kind in [
+            ErrorKind::ConnectionReset,
+            ErrorKind::ConnectionAborted,
+            ErrorKind::BrokenPipe,
+            ErrorKind::UnexpectedEof,
+        ] {
+            assert!(is_close(&Error::from(kind)), "{kind:?}");
+        }
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::Interrupted,
+            ErrorKind::Other,
+        ] {
+            assert!(!is_close(&Error::from(kind)), "{kind:?}");
+        }
+    }
+
+    /// Runs `flow_answer` with a 200 ms expiry against a peer that waits
+    /// `delay`, writes `first`, waits `gap`, then writes `rest`.
+    async fn timed_answer(
+        delay: Duration,
+        first: &[u8],
+        gap: Duration,
+        rest: &[u8],
+    ) -> Result<Flow, ProbeError> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (mut server, _) = listener.accept().await.unwrap();
+        let (first, rest) = (first.to_vec(), rest.to_vec());
+        let peer = tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            server.write_all(&first).await.unwrap();
+            tokio::time::sleep(gap).await;
+            // The client may already have given up and closed.
+            let _ = server.write_all(&rest).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        });
+        let result = flow_answer(&mut client, Instant::now() + Duration::from_millis(200)).await;
+        peer.abort();
+        result
+    }
+
+    /// The peek and the record read share one expiry: an alert that starts
+    /// before the deadline but completes after it is inconclusive, while one
+    /// that completes in time is an answer. With a 200 ms expiry, a first
+    /// fragment at 120 ms and the rest at 240 ms would pass a per-step timeout.
+    #[tokio::test]
+    async fn split_alert_shares_flow_deadline() {
+        let alert = record(21, &[2, 20]);
+        let ms = Duration::from_millis;
+        assert!(matches!(
+            timed_answer(ms(0), &alert[..3], ms(50), &alert[3..]).await,
+            Ok(Flow::Responded)
+        ));
+        assert!(matches!(
+            timed_answer(ms(120), &alert[..3], ms(120), &alert[3..]).await,
+            Err(ProbeError::Unexpected(
+                "incomplete record during flow probe"
+            ))
+        ));
+    }
+
+    /// Waiting in every case, or answering the valid control, is no oracle.
+    #[tokio::test]
+    async fn noncomparable_flows() {
+        for answer in [
+            (|_: usize| Answer::Wait) as fn(usize) -> Answer,
+            |_: usize| Answer::Alert,
+            |index| {
+                if index % 4 == 0 {
+                    Answer::Alert
+                } else {
+                    Answer::Wait
+                }
+            },
+        ] {
+            assert!(matches!(
+                scripted_flow(answer).await,
+                Err(ProbeError::Unexpected(
+                    "no reproducible RSA padding flow difference"
+                ))
+            ));
+        }
     }
 
     /// Optional requests get an empty certificate without weakening oracle evidence.

@@ -119,14 +119,15 @@ testls' own model, not SSL Labs', and does not affect the exit status. See
 Ticketbleed and ROBOT probes, including with the `quick` profile. No profile
 enables them automatically; the server API does not expose them.
 
-ROBOT compares repeated fatal alerts from valid and malformed RSA padding at
-one measured static RSA suite per TLS 1.0–1.2 version. A reproducible
-difference against a `bad_record_mac` control produces a high `vuln.robot`
-finding. Equal alerts, other responses, and unsupported suites are **not
+ROBOT compares RSA padding responses at one measured static RSA suite per
+TLS 1.0–1.2 version. A reproducible fatal-alert difference against a
+`bad_record_mac` control produces a high `vuln.robot` finding. The probe also
+sends the `ClientKeyExchange` alone: a server that answers a malformed block
+with an alert or an early close while the valid block keeps waiting for the
+client's `Finished` leaks the same oracle and is reported as vulnerable.
+Equal alerts, equal flows, other responses, and unsupported suites are **not
 tested**; they do not establish that the server is safe. Only these padding
-variants and the selected suites are covered; timing oracles and servers
-that signal padding errors only by closing early (such as wolfSSL 3.12.2)
-are not tested.
+variants and the selected suites are covered; timing oracles are not.
 An optional client-certificate request is validated before sending an empty
 certificate; this probe never uses client credentials. Required-client-auth
 refusal and any change to the request between attempts are **not tested**.
