@@ -193,9 +193,9 @@ async fn flow_attempt(
 /// Classifies the server's answer to a lone `ClientKeyExchange` after the flow
 /// deadline.
 ///
-/// No bytes before the deadline is [`Flow::Waiting`]. A close before any byte
-/// arrives, or one complete alert record (RFC 5246 §7.2), is
-/// [`Flow::Responded`]. Anything else is inconclusive: any other record type,
+/// No bytes before the deadline is [`Flow::Waiting`]. A close (EOF or reset)
+/// before any byte arrives, or one complete alert record (RFC 5246 §7.2), is
+/// [`Flow::Responded`]. Anything else is inconclusive: other I/O errors, any other record type,
 /// such as a zero-length `Handshake` fragment that RFC 5246 §6.2.1 forbids, or a
 /// record that stalls or is cut off after it starts.
 async fn flow_answer(stream: &mut TcpStream, deadline: Duration) -> Result<Flow, ProbeError> {
@@ -203,7 +203,9 @@ async fn flow_answer(stream: &mut TcpStream, deadline: Duration) -> Result<Flow,
     // record that stalls partway would otherwise look like silence.
     match timeout(deadline, stream.peek(&mut [0u8; 1])).await {
         Err(_) => Ok(Flow::Waiting),
-        Ok(Ok(0) | Err(_)) => Ok(Flow::Responded),
+        Ok(Ok(0)) => Ok(Flow::Responded),
+        Ok(Err(error)) if is_close(&error) => Ok(Flow::Responded),
+        Ok(Err(error)) => Err(ProbeError::Io(error)),
         Ok(Ok(_)) => match timeout(deadline, read_record(stream)).await {
             Ok(Ok((21, _, body))) if body.len() == 2 => Ok(Flow::Responded),
             Ok(Ok(_)) => Err(ProbeError::Unexpected("non-alert record during flow probe")),
@@ -213,6 +215,15 @@ async fn flow_answer(stream: &mut TcpStream, deadline: Duration) -> Result<Flow,
             Ok(Err(error)) => Err(error),
         },
     }
+}
+
+/// Reports whether an I/O error means the peer closed or reset the connection.
+fn is_close(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind::{BrokenPipe, ConnectionAborted, ConnectionReset, UnexpectedEof};
+    matches!(
+        error.kind(),
+        ConnectionReset | ConnectionAborted | BrokenPipe | UnexpectedEof
+    )
 }
 
 /// Wraps a client key exchange in a handshake record, with an empty
