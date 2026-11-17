@@ -186,11 +186,32 @@ async fn flow_attempt(
     .await
     .map_err(|_| ProbeError::Timeout)??;
     let deadline = transport.read_timeout.min(FLOW_READ_TIMEOUT);
-    match timeout(deadline, read_record(&mut stream)).await {
-        // A closed connection is an answer too: the server did not wait.
-        Ok(Ok(_) | Err(ProbeError::Io(_))) => Ok((received, Flow::Responded)),
-        Ok(Err(error)) => Err(error),
-        Err(_) => Ok((received, Flow::Waiting)),
+    let flow = flow_answer(&mut stream, deadline).await?;
+    Ok((received, flow))
+}
+
+/// Classifies the server's answer to a lone `ClientKeyExchange` after the flow
+/// deadline.
+///
+/// No bytes before the deadline is [`Flow::Waiting`]. A close before any byte
+/// arrives, or one complete alert record (RFC 5246 §7.2), is
+/// [`Flow::Responded`]. Anything else is inconclusive: any other record type,
+/// such as a zero-length `Handshake` fragment that RFC 5246 §6.2.1 forbids, or a
+/// record that stalls or is cut off after it starts.
+async fn flow_answer(stream: &mut TcpStream, deadline: Duration) -> Result<Flow, ProbeError> {
+    // Peek first: `read_record` consumes a header before it can time out, so a
+    // record that stalls partway would otherwise look like silence.
+    match timeout(deadline, stream.peek(&mut [0u8; 1])).await {
+        Err(_) => Ok(Flow::Waiting),
+        Ok(Ok(0) | Err(_)) => Ok(Flow::Responded),
+        Ok(Ok(_)) => match timeout(deadline, read_record(stream)).await {
+            Ok(Ok((21, _, body))) if body.len() == 2 => Ok(Flow::Responded),
+            Ok(Ok(_)) => Err(ProbeError::Unexpected("non-alert record during flow probe")),
+            Ok(Err(ProbeError::Io(_))) | Err(_) => Err(ProbeError::Unexpected(
+                "incomplete record during flow probe",
+            )),
+            Ok(Err(error)) => Err(error),
+        },
     }
 }
 
@@ -869,6 +890,10 @@ mod tests {
         Close,
         /// Hold the connection past the flow deadline.
         Wait,
+        /// A zero-length handshake record (not valid flow evidence).
+        EmptyHandshake,
+        /// A record header whose declared body never arrives.
+        PartialRecord,
     }
 
     /// Runs `probe_robot_flow` against a scripted peer. Valid attempts are
@@ -897,12 +922,29 @@ mod tests {
                             drop(stream);
                         });
                     }
+                    // RFC 5246 §6.2.1 forbids zero-length Handshake fragments.
+                    Answer::EmptyHandshake => stream.write_all(&record(22, &[])).await.unwrap(),
+                    // Declare a body that never arrives, then outlive the
+                    // deadline so the body read times out.
+                    Answer::PartialRecord => {
+                        stream.write_all(&[22, 3, 3, 0, 1]).await.unwrap();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(400)).await;
+                            drop(stream);
+                        });
+                    }
                 }
             }
         });
         let result =
             probe_robot_flow(&transport, ProtocolVersion::TLS12, 0x2f, Some("localhost")).await;
-        peer.await.unwrap();
+        // An inconclusive attempt stops the probe early; the peer would wait
+        // for the remaining connections forever.
+        if result.is_ok() {
+            peer.await.unwrap();
+        } else {
+            peer.abort();
+        }
         result
     }
 
@@ -929,6 +971,39 @@ mod tests {
             .await
             .is_ok()
         );
+    }
+
+    /// A non-alert record or a stalled record body is inconclusive, not an
+    /// answer, so it never becomes padding-oracle evidence.
+    #[tokio::test]
+    async fn non_alert_and_partial_flow_records_are_inconclusive() {
+        for (answer, message) in [
+            (
+                (|index| {
+                    if index % 4 == 0 {
+                        Answer::Wait
+                    } else {
+                        Answer::EmptyHandshake
+                    }
+                }) as fn(usize) -> Answer,
+                "non-alert record during flow probe",
+            ),
+            (
+                (|index| {
+                    if index % 4 == 0 {
+                        Answer::Wait
+                    } else {
+                        Answer::PartialRecord
+                    }
+                }) as fn(usize) -> Answer,
+                "incomplete record during flow probe",
+            ),
+        ] {
+            assert!(matches!(
+                scripted_flow(answer).await,
+                Err(ProbeError::Unexpected(got)) if got == message
+            ));
+        }
     }
 
     /// Waiting in every case, or answering the valid control, is no oracle.
