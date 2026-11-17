@@ -998,3 +998,32 @@ fn ccs_injection_patched_server() {
     assert!(!scan.has("[vuln.ccs_injection]"), "{}", scan.stdout);
     assert!(scan.line("CCS injection").contains("not tested"));
 }
+
+/// Scans a wolfSSL ROBOT fixture and asserts an inconclusive ROBOT verdict.
+///
+/// The fixture negotiates only `TLS_RSA_WITH_AES_128_CBC_SHA` at TLS 1.2.
+fn assert_wolfssl_robot_not_tested(addr: &str) {
+    let scan = scan(addr, &["--profile", "quick", "--intrusive"]);
+    assert!(scan.line("TLSv1.2").contains("offered"), "{}", scan.stdout);
+    assert!(scan.has("TLS_RSA_WITH_AES_128_CBC_SHA"), "{}", scan.stdout);
+    let robot = scan.line("ROBOT");
+    assert!(robot.contains("not tested"), "{robot}");
+    assert!(robot.contains("0x002f"), "{robot}");
+    assert!(robot.contains("no comparable fatal alert"), "{robot}");
+    assert!(!scan.has("[vuln.robot]"), "{}", scan.stdout);
+}
+
+/// wolfSSL 3.12.2 (CVE-2017-13099) leaks padding validity by closing early,
+/// not by a differing fatal alert, so ROBOT stays not tested (decision #103).
+#[test]
+#[ignore = "needs tests/servers running"]
+fn robot_wolfssl_vulnerable_server() {
+    assert_wolfssl_robot_not_tested("127.0.0.1:14438");
+}
+
+/// wolfSSL 3.13.0 (fixed) must never produce a ROBOT finding.
+#[test]
+#[ignore = "needs tests/servers running"]
+fn robot_wolfssl_patched_server() {
+    assert_wolfssl_robot_not_tested("127.0.0.1:14439");
+}

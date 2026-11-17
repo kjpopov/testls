@@ -1,0 +1,25 @@
+# Historical wolfSSL releases for opt-in ROBOT integration tests only.
+# 3.12.2 is affected by CVE-2017-13099; 3.13.0 contains the fix.
+FROM docker.io/library/debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS build
+ARG WOLFSSL_RELEASE=v3.12.2-stable
+ARG WOLFSSL_SHA256=0e0750705ceb0b42d83e609a1c35c3203734af50a92b15e2706bc06a6e50a439
+ADD --checksum=sha256:${WOLFSSL_SHA256} https://codeload.github.com/wolfSSL/wolfssl/tar.gz/refs/tags/${WOLFSSL_RELEASE} /tmp/source.tar.gz
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends autoconf automake build-essential libtool \
+ && mkdir /tmp/source \
+ && tar xzf /tmp/source.tar.gz --strip-components=1 -C /tmp/source \
+ && cd /tmp/source \
+ && ./autogen.sh \
+ && ./configure --disable-shared --enable-static CFLAGS="-DWOLFSSL_STATIC_RSA -DWOLFSSL_MAX_SUITE_SZ=1024 -Wno-error" \
+ && make -j"$(nproc)" examples/server/server \
+ && install -D examples/server/server /opt/fixture/server
+FROM docker.io/library/debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
+COPY --from=build /opt/fixture/server /usr/local/bin/wolfssl-server
+COPY --chown=nobody:nogroup --chmod=0400 server.pem server.key /
+# The example server refuses to start unless it finds this marker file
+# (ChangeToWolfRoot in wolfssl/test.h); its contents are never read.
+RUN mkdir -p /fixture/certs && touch /fixture/certs/ntru-key.raw
+WORKDIR /fixture
+USER nobody
+# TLS 1.2 static RSA only; no client authentication; keep serving after errors.
+ENTRYPOINT ["wolfssl-server", "-b", "-i", "-x", "-d", "-p", "4433", "-v", "3", "-l", "AES128-SHA", "-c", "/server.pem", "-k", "/server.key"]
