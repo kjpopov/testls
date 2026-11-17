@@ -5,13 +5,44 @@
 #   podman compose -f tests/servers/compose.yaml down
 #
 # `docker compose` works the same way.
+#
+# Every fixture resolves through the `dns` service, which serves A and PTR
+# records for the fixture network (fixtures.test, 10.253.53.0/24). Servers
+# that look up client names get an answer for the gateway that published
+# ports connect from instead of waiting on the host's resolver.
+x-fixture-dns: &fixture-dns
+  dns: [10.253.53.53]
+  dns_search: [fixtures.test]
+  depends_on: [dns]
+
+networks:
+  fixtures:
+    ipam:
+      config:
+        - subnet: 10.253.53.0/24
+          gateway: 10.253.53.1
+
 services:
+  # Authoritative DNS for fixtures.test and its reverse zone.
+  dns:
+    build:
+      context: .
+      dockerfile: Dockerfile.coredns
+    image: localhost/testls-coredns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.53
+
   # TLS 1.0-1.2, every cipher OpenSSL still has, client cipher order.
   legacy:
     build: .
     image: localhost/testls-server
     command: ["-cipher", "ALL:@SECLEVEL=0", "-min_protocol", "TLSv1", "-max_protocol", "TLSv1.2"]
     ports: ["127.0.0.1:14433:4433"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.10
 
   # TLS 1.2-1.3, ECDHE with AEAD only, server cipher order.
   modern:
@@ -19,6 +50,10 @@ services:
     image: localhost/testls-server
     command: ["-serverpref", "-min_protocol", "TLSv1.2", "-cipher", "ECDHE+AESGCM:ECDHE+CHACHA20", "-alpn", "http/1.1"]
     ports: ["127.0.0.1:14434:4433"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.11
 
   # Postfix with optional STARTTLS on SMTP, TLS 1.2+.
   smtp:
@@ -27,6 +62,10 @@ services:
       dockerfile: Dockerfile.postfix
     image: localhost/testls-postfix
     ports: ["127.0.0.1:14425:25"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.25
 
   # Dovecot with STARTTLS on IMAP and POP3, TLS 1.2+.
   mail:
@@ -35,6 +74,10 @@ services:
       dockerfile: Dockerfile.dovecot
     image: localhost/testls-dovecot
     ports: ["127.0.0.1:14143:143", "127.0.0.1:14110:110"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.26
 
   # vsftpd with AUTH TLS on FTP, TLS 1.2+.
   ftp:
@@ -46,6 +89,10 @@ services:
     # init process in front of it avoids that.
     init: true
     ports: ["127.0.0.1:14021:21"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.21
 
   # Prosody with required STARTTLS on XMPP client connections, TLS 1.2+.
   xmpp:
@@ -54,6 +101,10 @@ services:
       dockerfile: Dockerfile.prosody
     image: localhost/testls-prosody
     ports: ["127.0.0.1:15222:5222"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.22
 
   # OpenLDAP with the StartTLS extended operation, TLS 1.2+.
   ldap:
@@ -62,6 +113,10 @@ services:
       dockerfile: Dockerfile.slapd
     image: localhost/testls-slapd
     ports: ["127.0.0.1:14389:389"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.23
 
   # PostgreSQL with SSLRequest, TLS 1.2+.
   postgres:
@@ -70,6 +125,10 @@ services:
       dockerfile: Dockerfile.postgres
     image: localhost/testls-postgres
     ports: ["127.0.0.1:15432:5432"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.24
 
   # MariaDB with SSLRequest, TLS 1.2+.
   mysql:
@@ -78,6 +137,10 @@ services:
       dockerfile: Dockerfile.mariadb
     image: localhost/testls-mariadb
     ports: ["127.0.0.1:13306:3306"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.27
 
   # OpenSSL before/after the Heartbleed fix, accessible only on loopback.
   heartbleed:
@@ -85,6 +148,10 @@ services:
       context: .
       dockerfile: Dockerfile.heartbleed
     ports: ["127.0.0.1:14435:4433"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.35
 
   heartbleed-patched:
     build:
@@ -94,6 +161,10 @@ services:
         OPENSSL_RELEASE: OpenSSL_1_0_1g
         OPENSSL_SHA256: 3eb596dbd060859f6ff9e13c29ca4e902dd582be872be3bd8034edbdc44653d0
     ports: ["127.0.0.1:14436:4433"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.36
 
   # OpenSSL 1.0.1h fixes CVE-2014-0224; 1.0.1g above is affected.
   ccs-patched:
@@ -104,6 +175,10 @@ services:
         OPENSSL_RELEASE: OpenSSL_1_0_1h
         OPENSSL_SHA256: 4844f4631e5731db188293b2b7d61ecf79d57c3cb7bdb8abf9ab2fbd0a65da23
     ports: ["127.0.0.1:14437:4433"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.37
 
   # wolfSSL 3.12.2 is affected by ROBOT (CVE-2017-13099); 3.13.0 is fixed.
   # The affected release closes early instead of sending a differing fatal
@@ -113,6 +188,10 @@ services:
       context: .
       dockerfile: Dockerfile.wolfssl
     ports: ["127.0.0.1:14438:4433"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.38
 
   robot-wolfssl-patched:
     build:
@@ -122,3 +201,7 @@ services:
         WOLFSSL_RELEASE: v3.13.0-stable
         WOLFSSL_SHA256: 3bafeb0cb7eaff80002ba3f7cbb70023757bcc35fc4d82181945b143f1f927c6
     ports: ["127.0.0.1:14439:4433"]
+    <<: *fixture-dns
+    networks:
+      fixtures:
+        ipv4_address: 10.253.53.39

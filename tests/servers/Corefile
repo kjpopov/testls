@@ -1,0 +1,32 @@
+# Only the fixture zones are served; other names get a fast REFUSED, so no
+# query leaves the fixture network.
+fixtures.test {
+    file /etc/coredns/fixtures.test.zone
+    errors
+}
+53.253.10.in-addr.arpa {
+    file /etc/coredns/53.253.10.in-addr.arpa.zone
+    errors
+}
+
+# Generic names for clients outside the fixture network, such as the
+# address a container runtime's port forwarder connects from: PTR for any
+# other IPv4 address and the matching A record, like an ISP's generated
+# reverse DNS.
+in-addr.arpa {
+    template IN PTR {
+        match "^(?P<d>[0-9]+)[.](?P<c>[0-9]+)[.](?P<b>[0-9]+)[.](?P<a>[0-9]+)[.]in-addr[.]arpa[.]$"
+        answer "{{ .Name }} 3600 IN PTR ip-{{ .Group.a }}-{{ .Group.b }}-{{ .Group.c }}-{{ .Group.d }}.peer.fixtures.test."
+    }
+    errors
+}
+peer.fixtures.test {
+    template IN A {
+        match "^ip-(?P<a>[0-9]+)-(?P<b>[0-9]+)-(?P<c>[0-9]+)-(?P<d>[0-9]+)[.]peer[.]fixtures[.]test[.]$"
+        answer "{{ .Name }} 3600 IN A {{ .Group.a }}.{{ .Group.b }}.{{ .Group.c }}.{{ .Group.d }}"
+    }
+    template IN ANY {
+        rcode NXDOMAIN
+    }
+    errors
+}

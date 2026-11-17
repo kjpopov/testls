@@ -1,0 +1,22 @@
+; Forward zone for the fixture network 10.253.53.0/24 (compose.yaml).
+$ORIGIN fixtures.test.
+$TTL 3600
+@                     IN SOA ns hostmaster 1 3600 600 86400 3600
+@                     IN NS  ns
+ns                    IN A   10.253.53.53
+gateway               IN A   10.253.53.1
+legacy                IN A   10.253.53.10
+modern                IN A   10.253.53.11
+ftp                   IN A   10.253.53.21
+xmpp                  IN A   10.253.53.22
+ldap                  IN A   10.253.53.23
+postgres              IN A   10.253.53.24
+smtp                  IN A   10.253.53.25
+mail                  IN A   10.253.53.26
+mysql                 IN A   10.253.53.27
+heartbleed            IN A   10.253.53.35
+heartbleed-patched    IN A   10.253.53.36
+ccs-patched           IN A   10.253.53.37
+robot-wolfssl         IN A   10.253.53.38
+robot-wolfssl-patched IN A   10.253.53.39
+@                     IN MX  10 smtp

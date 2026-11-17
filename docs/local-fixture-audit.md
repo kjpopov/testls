@@ -143,8 +143,9 @@ treating it as an equivalent comparison even if it had completed.
 4. [Issue #163](https://github.com/kjpopov/testls/issues/163): historical TLS
    and SMTP fixtures can stall when local peer reverse DNS is unavailable.
    The independently verified workaround and restoration above isolate this
-   environment problem. A durable fix should avoid unnecessary peer-name
-   lookups without hard-coded VM addresses or global DNS changes.
+   environment problem. Fixed by decision #105: fixtures resolve
+   through a CoreDNS service with A and PTR records for the fixture network
+   and generated records for other peers.
 
 All four items are linked in the [PLAN backlog](PLAN.md#backlog). No scanner
 implementation or fixture image was changed during this audit.
