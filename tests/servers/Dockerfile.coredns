@@ -1,0 +1,5 @@
+# Authoritative DNS for the fixture network: A and PTR records for every
+# fixture and the bridge gateway that published ports connect from.
+FROM docker.io/coredns/coredns:1.15.0@sha256:0a9d8c8ddf34347eb59aad9a8784f0710de88d6d112726d11d271f9bc6daca26
+COPY Corefile fixtures.test.zone 53.253.10.in-addr.arpa.zone /etc/coredns/
+CMD ["-conf", "/etc/coredns/Corefile"]

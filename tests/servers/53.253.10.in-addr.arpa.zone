@@ -1,0 +1,27 @@
+; Reverse zone for the fixture network; matches fixtures.test.zone.
+$ORIGIN 53.253.10.in-addr.arpa.
+$TTL 3600
+@   IN SOA ns.fixtures.test. hostmaster.fixtures.test. 1 3600 600 86400 3600
+@   IN NS  ns.fixtures.test.
+1   IN PTR gateway.fixtures.test.
+10  IN PTR legacy.fixtures.test.
+11  IN PTR modern.fixtures.test.
+21  IN PTR ftp.fixtures.test.
+22  IN PTR xmpp.fixtures.test.
+23  IN PTR ldap.fixtures.test.
+24  IN PTR postgres.fixtures.test.
+25  IN PTR smtp.fixtures.test.
+26  IN PTR mail.fixtures.test.
+27  IN PTR mysql.fixtures.test.
+35  IN PTR heartbleed.fixtures.test.
+36  IN PTR heartbleed-patched.fixtures.test.
+37  IN PTR ccs-patched.fixtures.test.
+38  IN PTR robot-wolfssl.fixtures.test.
+39  IN PTR robot-wolfssl-patched.fixtures.test.
+53  IN PTR ns.fixtures.test.
+; Unassigned hosts get the same generated names as other peers (Corefile).
+$GENERATE 2-9     $ PTR ip-10-253-53-$.peer.fixtures.test.
+$GENERATE 12-20   $ PTR ip-10-253-53-$.peer.fixtures.test.
+$GENERATE 28-34   $ PTR ip-10-253-53-$.peer.fixtures.test.
+$GENERATE 40-52   $ PTR ip-10-253-53-$.peer.fixtures.test.
+$GENERATE 54-254  $ PTR ip-10-253-53-$.peer.fixtures.test.

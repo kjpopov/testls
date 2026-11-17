@@ -27,6 +27,9 @@ All notable changes to `testls` are listed here. The format follows
 
 ### Fixed
 
+- Test fixtures resolve names through a CoreDNS service with A and PTR
+  records, so fixtures that look up client names no longer stall when the
+  host has no reverse DNS for the container peer (#163).
 - Update transitive `rustix` to 1.1.6 to address RUSTSEC-2026-0486.
 - ROBOT now validates optional TLS client-certificate requests and sends an
   empty certificate before RSA vectors; client-authentication refusal stays

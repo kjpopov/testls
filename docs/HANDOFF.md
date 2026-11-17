@@ -259,6 +259,14 @@ if `gh` is allowed); update it when a session ends.
   UTF-16 surrogate pairs (declined strict BMP-only, possible follow-up).
   MariaDB relay/CLI integration test `mysql_robot_optional_client_certificate`.
   Several CodeRabbit rounds tightened DER validation; final round closed.
+- Fixture reverse DNS (#163, branch `test/fixture-reverse-dns`,
+  2026-11-17, decision #105): maintainer wants real DNS, no image hacks or
+  overrides. `dns` service (CoreDNS 1.15.0, `Dockerfile.coredns`,
+  `Corefile`, zone files) at 10.253.53.53 on compose network `fixtures`;
+  every fixture has a static IP and uses it via the `x-fixture-dns` anchor.
+  Podman's port forwarder connects from 192.168.127.1, hence the generated
+  `peer.fixtures.test` records (verified: Postfix logs
+  `connect from ip-192-168-127-1.peer.fixtures.test`).
 
 - CI pin-comment fix (#171, PR #174, 2026-11-17): every
   `dtolnay/rust-toolchain@683b588… # master` comment became `# v1` (the SHA is
