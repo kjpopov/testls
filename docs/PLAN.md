@@ -168,7 +168,7 @@ All behind the opt-in `--intrusive` flag (decision #97), one PR per check.
 - [x] Heartbleed (PR #154)
 - [x] CCS injection (PR #157)
 - [x] Ticketbleed (PR #158)
-- [x] ROBOT (`--intrusive`; decision #101)
+- [x] ROBOT (`--intrusive`; decisions #101, #104)
 
 ### v0.7 — Monitoring (sketch)
 - Target groups with owners, expiry dashboard, scheduled rescans with diff
@@ -216,8 +216,9 @@ Not scheduled; pulled into a milestone when someone picks it up.
 - [x] ROBOT integration coverage: wolfSSL 3.12.2 and 3.13.0 fixtures; the
   vulnerable one has a flow oracle, not an alert oracle, so both stay not
   tested (decision #103, [#161](https://github.com/kjpopov/testls/issues/161)).
-- ROBOT flow oracle: detect an early close on invalid padding versus waiting
-  for Finished on a valid block ([#175](https://github.com/kjpopov/testls/issues/175)).
+- [x] ROBOT flow oracle: detect an early close on invalid padding versus
+  waiting for Finished on a valid block, and report the evidence type
+  ([#175](https://github.com/kjpopov/testls/issues/175)).
 - DH measurement coverage: probe accepted finite-field DH suites separately,
   preserve weaker parameters and incomplete coverage, and avoid a negative
   Logjam verdict based on one sampled suite (local legacy reproduction,
@@ -338,3 +339,4 @@ None at the moment (default profile and politeness settled in #88, #89).
 | 101 | With `--intrusive`, compare a valid RSA key exchange block against three malformed PKCS#1 v1.5 blocks twice at one measured static RSA suite per TLS 1.0–1.2 version. Require the same certificate, version, suite and optional client-certificate request (presence and content), and a repeated fatal alert difference against a `bad_record_mac` control for a High finding; other results remain not tested. Add `num-bigint` as a direct dependency for RSA public-key modular exponentiation; it was already transitive in the lockfile | Bounds traffic and avoids claiming that untested padding or timing oracles are absent. Any attempt error stops that suite's probe without retries, consistent with #89; a transient failure can leave a real oracle not tested, an accepted limitation of the traffic bound. High follows CERT/CC's CVSS 3.0 score of 7.5 for [CVE-2017-13099 in NVD](https://nvd.nist.gov/vuln/detail/CVE-2017-13099), distinct from NIST's 5.9 Medium assessment. The probe confirms a padding-dependent alert oracle, not a completed decryption attack |
 | 102 | Standardize fixture audits as a local-only Python standard-library runner using existing tools/containers, a versioned loopback manifest and a clean, pinned external comparator checkout. Scan sequentially with process budgets, record provenance and JSON/Markdown evidence, and produce only unconfirmed review drafts | Maintainer selected local-only automation and review before filing. No automatic tool installation, service/DNS changes, CI job or GitHub writes. Incomplete measurements and not-tested vulnerabilities remain inconclusive; agreement is not a safety claim. Independently reproduce confirmed gaps before publishing issues and linked roadmap items; preserve the clean-room boundary |
 | 103 | ROBOT fixtures use wolfSSL 3.12.2 (CVE-2017-13099) and 3.13.0 (fixed), built from checksum-pinned upstream tags. 3.12.2 closes right after an invalid ClientKeyExchange and waits for Finished after a valid one; it sends no differing fatal alert. The fatal-alert rule of #101 stays; both fixtures assert ROBOT not tested and no `vuln.robot`. A flow oracle is tracked separately (#175) | The issue required confirming the real oracle before asserting a positive; weakening the rule to force one would risk false positives, and not tested is the honest verdict |
+| 104 | The ROBOT probe also sends the `ClientKeyExchange` alone and records whether the server answers (any alert, or an early close) or keeps waiting for the client's Finished. A high `vuln.robot` needs the valid block to wait and a malformed block to answer, reproducibly over two interleaved rounds, for the same certificate and client-authentication policy. The alert oracle of #101 runs first and its evidence is named separately. Bounds: one static RSA suite per TLS 1.0–1.2 version, two rounds, a 2 s flow deadline. Amends #103; the wolfSSL 3.12.2 fixture now reports vulnerable | Servers such as wolfSSL 3.12.2 leak padding validity only by closing early, so the fatal-alert rule of #101 missed a real oracle (#175). The waiting valid block is the control that keeps a fast close from being mistaken for evidence, and requiring both rounds to agree bounds false positives |

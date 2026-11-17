@@ -16,12 +16,14 @@ All notable changes to `testls` are listed here. The format follows
   session ID extension creates a high finding for possible memory exposure;
   an unchanged echo reports not vulnerable. Skipped when TLS 1.2 is not offered.
 - Opt-in ROBOT probe compares RSA padding responses and reports a high
-  finding for a repeated alert difference; inconclusive results remain untested.
+  finding for a repeated fatal-alert difference, or for a server that answers
+  a malformed `ClientKeyExchange` (alert or early close) while a valid one
+  keeps waiting; inconclusive results remain untested.
 - Local fixture audit runner with a versioned manifest, pinned external
   comparator validation, bounded sequential scans and review-only reports.
 - wolfSSL 3.12.2 and 3.13.0 ROBOT integration fixtures. The affected release
-  leaks padding validity by closing early, not by a fatal alert, so testls
-  reports ROBOT as not tested on both; flow detection is tracked in #175.
+  closes early on invalid padding and now produces a high `vuln.robot`; the
+  fixed 3.13.0 waits in every case and stays not tested.
 
 ### Fixed
 

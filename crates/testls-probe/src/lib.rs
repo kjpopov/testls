@@ -42,7 +42,7 @@ pub use mx::{MxError, MxResolver};
 pub use protocols::{ProtocolResult, ProtocolSupport, classify, detect_protocols, probe_protocol};
 pub use response::HelloResponse;
 use response::ResponseParser;
-pub use robot::probe_robot;
+pub use robot::{probe_robot, probe_robot_flow};
 pub use starttls::Starttls;
 use testls_wire::{DecodeError, EncodeError};
 pub use ticketbleed::{TicketbleedVerdict, probe_ticketbleed};

@@ -15,10 +15,10 @@ port 14389), a PostgreSQL server with `SSLRequest`
 coverage: 3.12.2 (CVE-2017-13099, port 14438) and 3.13.0 (fixed, port 14439),
 TLS 1.2 `AES128-SHA` only. On invalid RSA padding 3.12.2 sends `close_notify`
 right after the ClientKeyExchange; for a valid block it waits for the client's
-Finished. 3.13.0 waits in both cases. testls compares fatal alerts only, so it
-reports ROBOT as not tested on both. Both releases answer a hello without a
-shared suite with `TLS_NULL_WITH_NULL_NULL`, so scans also report
-`cipher.null` and a certificate fetch error. Check by hand:
+Finished. 3.13.0 waits in both cases. testls reports the differing flow as a
+high `vuln.robot` on 3.12.2 and not tested on 3.13.0. Both releases answer a
+hello without a shared suite with `TLS_NULL_WITH_NULL_NULL`, so scans also
+report `cipher.null` and a certificate fetch error. Check by hand:
 
 ```sh
 testls --intrusive --profile quick 127.0.0.1:14438

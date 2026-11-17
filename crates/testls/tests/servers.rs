@@ -1013,6 +1013,25 @@ fn assert_wolfssl_robot_not_tested(addr: &str) {
     assert!(!scan.has("[vuln.robot]"), "{}", scan.stdout);
 }
 
+/// Scans a wolfSSL ROBOT fixture and asserts the flow-oracle finding.
+///
+/// The fixture signals invalid padding by closing right after the
+/// `ClientKeyExchange`, so the alert oracle stays inconclusive while the flow
+/// oracle confirms the difference.
+fn assert_wolfssl_robot_vulnerable(addr: &str) {
+    let scan = scan(addr, &["--profile", "quick", "--intrusive"]);
+    assert!(scan.line("TLSv1.2").contains("offered"), "{}", scan.stdout);
+    assert!(scan.has("TLS_RSA_WITH_AES_128_CBC_SHA"), "{}", scan.stdout);
+    let robot = scan.line("ROBOT");
+    assert!(robot.contains("vulnerable"), "{robot}");
+    assert!(robot.contains("0x002f"), "{robot}");
+    assert!(
+        robot.contains("early close on invalid RSA padding"),
+        "{robot}"
+    );
+    assert!(scan.has("[vuln.robot]"), "{}", scan.stdout);
+}
+
 /// Reads one TLS record from a blocking stream: `(type, body)`.
 fn read_tls_record(stream: &mut TcpStream) -> std::io::Result<(u8, Vec<u8>)> {
     let mut header = [0; 5];
@@ -1105,12 +1124,12 @@ fn wolfssl_closes_after_cke(addr: &str, valid: bool) -> bool {
     )
 }
 
-/// wolfSSL 3.12.2 (CVE-2017-13099) leaks padding validity by closing early,
-/// not by a differing fatal alert, so ROBOT stays not tested (decision #103).
+/// wolfSSL 3.12.2 (CVE-2017-13099) leaks padding validity by closing early;
+/// the flow oracle confirms `vuln.robot`.
 #[test]
 #[ignore = "needs tests/servers running"]
 fn robot_wolfssl_vulnerable_server() {
-    assert_wolfssl_robot_not_tested("127.0.0.1:14438");
+    assert_wolfssl_robot_vulnerable("127.0.0.1:14438");
 }
 
 /// Confirms the 3.12.2 fixture still exposes the flow oracle independently of

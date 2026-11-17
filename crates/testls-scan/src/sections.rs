@@ -592,7 +592,26 @@ async fn robot_section(
                         finding: Some("vuln.robot"),
                     };
                 }
-                Err(e) => detail.push(format!("{version} {suite:#06x}: {e}")),
+                Err(alert) => {
+                    // A server that signals padding errors only by closing
+                    // early leaks the same oracle without a differing alert.
+                    match testls_probe::probe_robot_flow(transport, version, suite, sni).await {
+                        Ok(()) => {
+                            return Vulnerability {
+                                id: "robot",
+                                name: "ROBOT",
+                                status: testls_checks::VulnStatus::Vulnerable,
+                                detail: format!(
+                                    "{version}: early close on invalid RSA padding for suite {suite:#06x}"
+                                ),
+                                finding: Some("vuln.robot"),
+                            };
+                        }
+                        Err(flow) => {
+                            detail.push(format!("{version} {suite:#06x}: {alert}; flow: {flow}"));
+                        }
+                    }
+                }
             }
         }
     }
