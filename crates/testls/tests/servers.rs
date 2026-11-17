@@ -8,6 +8,7 @@ use std::net::TcpStream;
 use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Exit code and captured stdout of one `testls` run.
 struct Scan {
@@ -673,6 +674,157 @@ fn other_starttls() {
         assert!(!s.has("cert.hostname_mismatch"), "{}", s.stdout);
         assert!(!s.has("cert.untrusted"), "{}", s.stdout);
     }
+}
+
+/// Reads a bounded raw MySQL packet or TLS record for the test-only relay.
+async fn mysql_robot_frame(stream: &mut tokio::net::TcpStream, mysql: bool) -> Vec<u8> {
+    let header_len = if mysql { 4 } else { 5 };
+    let mut frame = vec![0; header_len];
+    stream.read_exact(&mut frame).await.expect("relay header");
+    let len = if mysql {
+        usize::try_from(u32::from_le_bytes([frame[0], frame[1], frame[2], 0])).unwrap()
+    } else {
+        usize::from(u16::from_be_bytes([frame[3], frame[4]]))
+    };
+    assert!(len <= 18 * 1024, "oversized relay frame");
+    frame.resize(header_len + len, 0);
+    stream
+        .read_exact(&mut frame[header_len..])
+        .await
+        .expect("relay body");
+    frame
+}
+
+/// Relays one real MariaDB exchange and observes the request and client framing.
+///
+/// No handshake bytes are synthesized or changed. RFC 5246 §7.4.6–7 requires
+/// an empty client Certificate immediately before `ClientKeyExchange` here.
+async fn relay_mysql_robot_handshake(mut client: tokio::net::TcpStream) -> (bool, bool) {
+    let mut server = tokio::net::TcpStream::connect("127.0.0.1:13306")
+        .await
+        .expect("MariaDB");
+    client
+        .write_all(&mysql_robot_frame(&mut server, true).await)
+        .await
+        .unwrap();
+    server
+        .write_all(&mysql_robot_frame(&mut client, true).await)
+        .await
+        .unwrap();
+    server
+        .write_all(&mysql_robot_frame(&mut client, false).await)
+        .await
+        .unwrap();
+    let mut pending = Vec::new();
+    let mut requested = false;
+    let mut done = false;
+    while !done {
+        let frame = mysql_robot_frame(&mut server, false).await;
+        assert_eq!(frame[0], 22, "plaintext server handshake");
+        client.write_all(&frame).await.unwrap();
+        pending.extend_from_slice(&frame[5..]);
+        assert!(pending.len() <= 256 * 1024, "oversized server handshake");
+        let mut offset = 0;
+        while let Some((message, used)) = testls_wire::parse_handshake(&pending[offset..]).unwrap()
+        {
+            requested |= message.typ == testls_wire::handshake_type::CERTIFICATE_REQUEST;
+            done |= message.typ == testls_wire::handshake_type::SERVER_HELLO_DONE;
+            offset += used;
+        }
+        pending.drain(..offset);
+    }
+    let frame = mysql_robot_frame(&mut client, false).await;
+    assert_eq!(frame[0], 22, "client handshake");
+    let (certificate, used) = testls_wire::parse_handshake(&frame[5..]).unwrap().unwrap();
+    let (cke, cke_used) = testls_wire::parse_handshake(&frame[5 + used..])
+        .unwrap()
+        .unwrap();
+    let empty_before_cke = certificate.typ == testls_wire::handshake_type::CERTIFICATE
+        && certificate.body == [0, 0, 0]
+        && cke.typ == 16 // ClientKeyExchange, RFC 5246 §A.4.
+        && 5 + used + cke_used == frame.len();
+    server.write_all(&frame).await.unwrap();
+    for typ in [20, 22] {
+        let frame = mysql_robot_frame(&mut client, false).await;
+        assert_eq!(frame[0], typ, "CCS then bogus encrypted Finished");
+        server.write_all(&frame).await.unwrap();
+    }
+    client
+        .write_all(&mysql_robot_frame(&mut server, false).await)
+        .await
+        .unwrap();
+    (requested, empty_before_cke)
+}
+
+/// Observes all eight real MariaDB ROBOT exchanges, then checks the CLI verdict.
+#[tokio::test]
+#[ignore = "needs tests/servers running"]
+async fn mysql_robot_optional_client_certificate() {
+    wait_for("127.0.0.1:13306");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut transport = testls_probe::Transport::new(listener.local_addr().unwrap());
+    transport.starttls = Some(testls_probe::Starttls::Mysql);
+    transport.read_timeout = Duration::from_secs(3);
+    let observer = tokio::spawn(async move {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            for _ in 0..8 {
+                let (client, _) = listener.accept().await.unwrap();
+                let (requested, empty_before_cke) = relay_mysql_robot_handshake(client).await;
+                assert!(requested, "MariaDB must send CertificateRequest");
+                assert!(empty_before_cke, "empty Certificate must precede CKE");
+            }
+        })
+        .await
+        .expect("bounded MariaDB observation");
+    });
+    let result = testls_probe::probe_robot(
+        &transport,
+        testls_wire::ProtocolVersion::TLS12,
+        0x002f,
+        Some("localhost"),
+    )
+    .await;
+    observer.await.unwrap();
+    assert!(matches!(
+        result,
+        Err(testls_probe::ProbeError::Unexpected(
+            "no reproducible RSA padding alert difference"
+        ))
+    ));
+    let s = scan(
+        "127.0.0.1:13306",
+        &[
+            "--starttls",
+            "mysql",
+            "--sni",
+            "localhost",
+            "--ca-file",
+            CA_FILE,
+            "--profile",
+            "quick",
+            "--intrusive",
+            "--format",
+            "json",
+        ],
+    );
+    assert_ne!(s.code, 2, "{}", s.stdout);
+    let report: serde_json::Value = serde_json::from_str(&s.stdout).expect("valid JSON");
+    let robot = report["vulnerabilities"]
+        .as_array()
+        .expect("vulnerabilities")
+        .iter()
+        .find(|v| v["id"] == "robot")
+        .expect("ROBOT result");
+    assert_eq!(robot["status"], "not tested", "{}", s.stdout);
+    assert!(
+        robot["detail"]
+            .as_str()
+            .expect("ROBOT detail")
+            .contains("no reproducible RSA padding alert difference"),
+        "{}",
+        s.stdout
+    );
+    assert!(!s.has("vuln.robot"), "{}", s.stdout);
 }
 
 /// Sends one HTTP/1.1 request to `server` and returns status and body.

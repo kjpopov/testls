@@ -23,6 +23,9 @@ All notable changes to `testls` are listed here. The format follows
 ### Fixed
 
 - Update transitive `rustix` to 1.1.6 to address RUSTSEC-2026-0486.
+- ROBOT now validates optional TLS client-certificate requests and sends an
+  empty certificate before RSA vectors; client-authentication refusal stays
+  inconclusive, and changed requests cannot produce an oracle finding.
 
 ## [0.6.0] - 2026-11-08
 

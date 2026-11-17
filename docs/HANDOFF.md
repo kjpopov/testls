@@ -241,8 +241,24 @@ if `gh` is allowed); update it when a session ends.
   OCSP fixtures, 35 audit-runner tests, fmt, workspace Clippy (`-D warnings`),
   workspace tests, MSRV and locked workspace check pass. Full
   `cargo deny check` passes; usual duplicate/license-exception warnings remain.
-  Container tests are ignored locally; CI/review pending. No merge authorization for
-  this follow-up; existing stash and containers remain untouched.
+  Container tests are ignored locally; all CI checks pass, including integration
+  and advisories. Maintainer merged PR #167 at `4c5ae675` (2026-11-16), choosing
+  not to wait for the rate-limited CodeRabbit review. At the maintainer's request,
+  commented on issue #166 with the fix and validation, then closed it as completed.
+  The agent did not merge the PR; existing stash and containers remain untouched.
+
+- ROBOT optional client certificate requests (#160, PR #168, 2026-11-16):
+  accept one validated `CertificateRequest` after the server certificate
+  (version-specific vectors, DER authority Names), send only an empty client
+  Certificate before CKE; request presence/content must match across the
+  eight attempts (decision #101, usage.md). Authority Name checks in
+  `robot.rs`: `name_container` (complete Name/RDN/attribute consumption),
+  explicit OID tag + X.690 §8.19.2 subidentifiers, `der_elements` (bounded
+  recursive DER walk of attribute values, depth 8; constructed universal only
+  SEQUENCE/SET; `string_contents` X.680 charsets). BMPString accepts valid
+  UTF-16 surrogate pairs (declined strict BMP-only, possible follow-up).
+  MariaDB relay/CLI integration test `mysql_robot_optional_client_certificate`.
+  Several CodeRabbit rounds tightened DER validation; final round closed.
 
 Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
 fresh `main` before assigning a number.
