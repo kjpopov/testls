@@ -1040,9 +1040,14 @@ mod tests {
         }
     }
 
-    /// Runs `flow_answer` with a 200 ms expiry against a peer that writes
-    /// `first`, waits `gap`, then writes `rest`.
-    async fn timed_answer(first: &[u8], gap: Duration, rest: &[u8]) -> Result<Flow, ProbeError> {
+    /// Runs `flow_answer` with a 200 ms expiry against a peer that waits
+    /// `delay`, writes `first`, waits `gap`, then writes `rest`.
+    async fn timed_answer(
+        delay: Duration,
+        first: &[u8],
+        gap: Duration,
+        rest: &[u8],
+    ) -> Result<Flow, ProbeError> {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let mut client = TcpStream::connect(listener.local_addr().unwrap())
             .await
@@ -1050,6 +1055,7 @@ mod tests {
         let (mut server, _) = listener.accept().await.unwrap();
         let (first, rest) = (first.to_vec(), rest.to_vec());
         let peer = tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
             server.write_all(&first).await.unwrap();
             tokio::time::sleep(gap).await;
             // The client may already have given up and closed.
@@ -1063,16 +1069,18 @@ mod tests {
 
     /// The peek and the record read share one expiry: an alert that starts
     /// before the deadline but completes after it is inconclusive, while one
-    /// that completes in time is an answer.
+    /// that completes in time is an answer. With a 200 ms expiry, a first
+    /// fragment at 120 ms and the rest at 240 ms would pass a per-step timeout.
     #[tokio::test]
     async fn split_alert_shares_flow_deadline() {
         let alert = record(21, &[2, 20]);
+        let ms = Duration::from_millis;
         assert!(matches!(
-            timed_answer(&alert[..3], Duration::from_millis(50), &alert[3..]).await,
+            timed_answer(ms(0), &alert[..3], ms(50), &alert[3..]).await,
             Ok(Flow::Responded)
         ));
         assert!(matches!(
-            timed_answer(&alert[..3], Duration::from_millis(350), &alert[3..]).await,
+            timed_answer(ms(120), &alert[..3], ms(120), &alert[3..]).await,
             Err(ProbeError::Unexpected(
                 "incomplete record during flow probe"
             ))
