@@ -14,7 +14,7 @@ use testls_wire::{
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout, timeout_at};
 use x509_parser::asn1_rs::{Any, Class, Oid, Tag};
 use x509_parser::prelude::{FromDer, X509Name};
 use x509_parser::public_key::PublicKey;
@@ -185,8 +185,8 @@ async fn flow_attempt(
     })
     .await
     .map_err(|_| ProbeError::Timeout)??;
-    let deadline = transport.read_timeout.min(FLOW_READ_TIMEOUT);
-    let flow = flow_answer(&mut stream, deadline).await?;
+    let expiry = Instant::now() + transport.read_timeout.min(FLOW_READ_TIMEOUT);
+    let flow = flow_answer(&mut stream, expiry).await?;
     Ok((received, flow))
 }
 
@@ -198,15 +198,16 @@ async fn flow_attempt(
 /// [`Flow::Responded`]. Anything else is inconclusive: other I/O errors, any other record type,
 /// such as a zero-length `Handshake` fragment that RFC 5246 §6.2.1 forbids, or a
 /// record that stalls or is cut off after it starts.
-async fn flow_answer(stream: &mut TcpStream, deadline: Duration) -> Result<Flow, ProbeError> {
+async fn flow_answer(stream: &mut TcpStream, expiry: Instant) -> Result<Flow, ProbeError> {
     // Peek first: `read_record` consumes a header before it can time out, so a
     // record that stalls partway would otherwise look like silence.
-    match timeout(deadline, stream.peek(&mut [0u8; 1])).await {
+    match timeout_at(expiry, stream.peek(&mut [0u8; 1])).await {
         Err(_) => Ok(Flow::Waiting),
         Ok(Ok(0)) => Ok(Flow::Responded),
         Ok(Err(error)) if is_close(&error) => Ok(Flow::Responded),
         Ok(Err(error)) => Err(ProbeError::Io(error)),
-        Ok(Ok(_)) => match timeout(deadline, read_record(stream)).await {
+        // One expiry for both steps, so a split record cannot extend the deadline.
+        Ok(Ok(_)) => match timeout_at(expiry, read_record(stream)).await {
             Ok(Ok((21, _, body))) if body.len() == 2 => Ok(Flow::Responded),
             Ok(Ok(_)) => Err(ProbeError::Unexpected("non-alert record during flow probe")),
             Ok(Err(ProbeError::Io(_))) | Err(_) => Err(ProbeError::Unexpected(
@@ -1015,6 +1016,67 @@ mod tests {
                 Err(ProbeError::Unexpected(got)) if got == message
             ));
         }
+    }
+
+    /// Only I/O errors that mean the peer closed the connection count as an
+    /// answer; any other error stays inconclusive.
+    #[test]
+    fn close_errors() {
+        use std::io::{Error, ErrorKind};
+        for kind in [
+            ErrorKind::ConnectionReset,
+            ErrorKind::ConnectionAborted,
+            ErrorKind::BrokenPipe,
+            ErrorKind::UnexpectedEof,
+        ] {
+            assert!(is_close(&Error::from(kind)), "{kind:?}");
+        }
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::Interrupted,
+            ErrorKind::Other,
+        ] {
+            assert!(!is_close(&Error::from(kind)), "{kind:?}");
+        }
+    }
+
+    /// Runs `flow_answer` with a 200 ms expiry against a peer that writes
+    /// `first`, waits `gap`, then writes `rest`.
+    async fn timed_answer(first: &[u8], gap: Duration, rest: &[u8]) -> Result<Flow, ProbeError> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (mut server, _) = listener.accept().await.unwrap();
+        let (first, rest) = (first.to_vec(), rest.to_vec());
+        let peer = tokio::spawn(async move {
+            server.write_all(&first).await.unwrap();
+            tokio::time::sleep(gap).await;
+            // The client may already have given up and closed.
+            let _ = server.write_all(&rest).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        });
+        let result = flow_answer(&mut client, Instant::now() + Duration::from_millis(200)).await;
+        peer.abort();
+        result
+    }
+
+    /// The peek and the record read share one expiry: an alert that starts
+    /// before the deadline but completes after it is inconclusive, while one
+    /// that completes in time is an answer.
+    #[tokio::test]
+    async fn split_alert_shares_flow_deadline() {
+        let alert = record(21, &[2, 20]);
+        assert!(matches!(
+            timed_answer(&alert[..3], Duration::from_millis(50), &alert[3..]).await,
+            Ok(Flow::Responded)
+        ));
+        assert!(matches!(
+            timed_answer(&alert[..3], Duration::from_millis(350), &alert[3..]).await,
+            Err(ProbeError::Unexpected(
+                "incomplete record during flow probe"
+            ))
+        ));
     }
 
     /// Waiting in every case, or answering the valid control, is no oracle.
