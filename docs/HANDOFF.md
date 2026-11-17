@@ -260,8 +260,34 @@ if `gh` is allowed); update it when a session ends.
   MariaDB relay/CLI integration test `mysql_robot_optional_client_certificate`.
   Several CodeRabbit rounds tightened DER validation; final round closed.
 
-Next free decision: #103 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit). Recheck
-fresh `main` before assigning a number.
+- CI pin-comment fix (#171, PR #174, 2026-11-17): every
+  `dtolnay/rust-toolchain@683b588… # master` comment became `# v1` (the SHA is
+  tag v1), clearing zizmor's pre-existing `ref-version-mismatch` that had been
+  failing the dependabot bump #171 (taiki-e/install-action). Pushing needed
+  `gh auth refresh -s workflow`. Maintainer merged #174 (`8657740`) without
+  waiting for the rate-limited CodeRabbit, then rebased and merged #171.
+
+- ROBOT fixture pair (#161, PR #176, 2026-11-17): added `Dockerfile.wolfssl`
+  and compose services `robot-wolfssl` (14438, wolfSSL 3.12.2-stable,
+  CVE-2017-13099) and `robot-wolfssl-patched` (14439, 3.13.0-stable), built
+  from checksum-pinned upstream tags, non-root, loopback-only. The #101
+  alert-oracle rule was left intact, so both fixtures report ROBOT not tested
+  (decision #103). `assert_wolfssl_robot_not_tested` plus `wolfssl_closes_after_cke`
+  tests reproduce the flow oracle directly; CodeRabbit asked for that direct
+  test, then approved. Merged at `3b72780`; issue #161 closed. Follow-up #175.
+
+- ROBOT flow oracle (#175, PR #177, 2026-11-17, branch `feat/robot-flow-oracle`):
+  added `probe_robot_flow` to `robot.rs` (`ClientKeyExchange`-only, two
+  interleaved rounds x four kinds, 2 s flow deadline, `Flow::{Waiting,Responded}`)
+  and wired it into `robot_section` as a second oracle run only when the alert
+  oracle is inconclusive; decision #104. wolfSSL 3.12.2 now reports `vuln.robot`,
+  3.13.0 stays not tested; OpenSSL 1.0.1f/g (Heartbleed/CCS) and MariaDB keep
+  their previous verdicts. fmt, clippy, probe/scan unit tests, 35 audit tests
+  and local integration pass. Awaiting CodeRabbit/CI before merge.
+
+Next free decision: #105 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
+#103 ROBOT fixtures, #104 ROBOT flow oracle). Recheck fresh `main` before assigning
+a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
    packages PR #151 merged. New crates need a manual first publish plus a
