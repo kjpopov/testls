@@ -31,28 +31,47 @@ gh api --paginate --slurp repos/OWNER/REPO/pulls/N/reviews | jq -r '[.[][]
   | last | .state + " " + .commit_id'
 ```
 
-Unresolved threads:
+Unresolved threads, all pages:
 
 ```sh
-gh api graphql -f query='{repository(owner:"OWNER",name:"REPO"){pullRequest(number:N){reviewThreads(first:50){nodes{isResolved comments(first:1){nodes{databaseId path line body}}}}}}}' \
+gh api graphql --paginate -f query='query($endCursor: String) {
+  repository(owner: "OWNER", name: "REPO") { pullRequest(number: N) {
+    reviewThreads(first: 50, after: $endCursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes { isResolved comments(first: 1) { nodes { databaseId path line body } } }
+    } } } }' \
   --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved|not) | .comments.nodes[0]'
 ```
 
 Copy each unresolved comment's id, path, line and the "Prompt for AI Agents"
-section verbatim. Also check review bodies for outside-diff and nitpick
-items, which have no thread.
+section verbatim.
 
-Done when: verdict `APPROVED` on `headRefOid`, no unresolved threads, merge
-state `CLEAN`. Then report `result: PASS`; the caller merges.
+Review bodies hold outside-diff and nitpick items, which have no thread.
+Read every CodeRabbit review body, including `COMMENTED` ones:
+
+```sh
+gh api --paginate --slurp repos/OWNER/REPO/pulls/N/reviews | jq -r '.[][]
+  | select(.user.login == "coderabbitai[bot]")
+  | "=== " + .state + " " + .commit_id + "\n" + .body'
+```
+
+Done when: verdict `APPROVED` on the head, no unresolved threads, merge
+state `CLEAN`. Run the snapshot's `gh pr view` again after collecting the
+verdict and threads; if `headRefOid` changed, repeat everything for the new
+head. Only then report `result: PASS`; the caller merges.
 
 ## Rate limits
 
-CodeRabbit's free plan allows few reviews per hour. Before posting
-`@coderabbitai review`, read its newest issue comments:
+Post `@coderabbitai review` only when the caller explicitly asked for it;
+otherwise report the limit and stop.
+
+CodeRabbit's free plan allows few reviews per hour. Before posting, read its
+newest issue comments across all pages:
 
 ```sh
-gh api repos/OWNER/REPO/issues/N/comments \
-  --jq '[.[] | select(.user.login=="coderabbitai[bot]")] | .[-3:][] | .updated_at + " " + (.body[:300])'
+gh api --paginate --slurp repos/OWNER/REPO/issues/N/comments | jq -r '[.[][]
+  | select(.user.login == "coderabbitai[bot]")] | sort_by(.updated_at)
+  | .[-3:][] | .updated_at + " " + (.body[:300])'
 ```
 
 - If one says "rate limited" or "Review limit reached" with "available in M
@@ -78,8 +97,8 @@ the tool caps timeouts lower, use the largest allowed wait.
   `gh pr checks N --json name,bucket --jq '.[] | select(.bucket != "pass" and .bucket != "skipping")'`.
   A `CodeRabbit` check of `skipping` means no review ran (usually rate
   limited).
-- CodeRabbit window: one `sleep SECONDS` until the computed time, then
-  re-read comments and post.
+- CodeRabbit window (only if the caller asked for a review): one
+  `sleep SECONDS` until the computed time, then re-read comments and post.
 - CodeRabbit review after posting: it takes a few minutes; `sleep 600`, then
   run the verdict commands once.
 

@@ -22,15 +22,18 @@ Tests that need servers are `#[ignore]` in `crates/testls/tests/servers.rs`.
 Pass the caller's name filters (substring match, several allowed):
 
 ```sh
-cargo test -p testls --test servers -- --ignored FILTER... 2>&1 \
-  | grep -E "^test |test result|panicked|FAILED"
+cargo test -p testls --test servers -- --ignored FILTER... > target/servers-test.log 2>&1
+echo "exit=$?"
+grep -E "^test |test result|panicked|FAILED" target/servers-test.log
 ```
 
 Example filters: `robot_wolfssl heartbleed ccs_injection`. All of them:
-`cargo test -p testls --test servers -- --ignored`.
+drop the filters.
 
-On failure, rerun the single failing test without `grep` and report its
-`panicked at` line plus the assertion message.
+`exit=0` is the only `PASS`; a matching `grep` line is not. If the exit is
+non-zero and `grep` shows no failing test, it is a build or setup error:
+report `tail -40 target/servers-test.log`. For a failing test, report its
+`panicked at` line plus the assertion message from the log.
 
 If OCSP fixtures are missing, run `scripts/gen-ocsp-fixtures.sh` once, then
 retry.
