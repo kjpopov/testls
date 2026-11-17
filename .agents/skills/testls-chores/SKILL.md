@@ -18,7 +18,10 @@ you run commands and report what happened.
 - Run exactly the commands given or listed here. Don't "fix" failures; report
   them.
 - Podman, not docker. macOS has no `timeout`; use tool-level timeouts.
-- Sleep at most 290 s per command, tool timeout about 320 s.
+- Wait with one long command (`sleep`, `gh pr checks --watch`) and set the
+  tool timeout to cover it; don't burn steps on short polls.
+- Always end with a report, even when out of steps: `WAITING` plus the next
+  action and when.
 - Report verbatim: copy error lines, test names, review text. Never summarize
   a failure as "some tests failed".
 

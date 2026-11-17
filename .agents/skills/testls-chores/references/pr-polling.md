@@ -52,19 +52,37 @@ CodeRabbit's free plan allows few reviews per hour. Before posting
 
 ```sh
 gh api repos/OWNER/REPO/issues/N/comments \
-  --jq '[.[] | select(.user.login=="coderabbitai[bot]")] | .[-3:][] | .created_at + " " + (.body[:300])'
+  --jq '[.[] | select(.user.login=="coderabbitai[bot]")] | .[-3:][] | .updated_at + " " + (.body[:300])'
 ```
 
 - If one says "rate limited" or "Review limit reached" with "available in M
-  minutes", wait until its `created_at` + M + 2 minutes. Never post while
-  limited.
+  minutes", wait until its `updated_at` + M + 2 minutes. CodeRabbit edits
+  the same comment, so `updated_at` is the anchor, not `created_at`.
 - Without a stated time, wait until one hour after the last completed review.
+- The estimate is not reliable. Right before posting, read the comments
+  again; if the newest one now names a later time, wait for that instead.
+  Never post while limited.
 - Post `@coderabbitai review` at most once per window
-  (`gh pr comment N -b "@coderabbitai review"`). If limited again, wait once
-  more, then report `BLOCKED` with the limit message.
+  (`gh pr comment N -b "@coderabbitai review"`). If limited again, report
+  `BLOCKED` with the limit message and new time; don't post again.
 
-## Waiting loop
+## Waiting
 
-Repeat snapshot + verdict with `sleep 240` between rounds (tool timeout about
-320 s). Stop and report on: new review, new unresolved thread, check failure,
-`PASS`, or after the number of rounds the caller set (default 6).
+Agents often have a small step budget, so wait with one long command, not
+many short polls. Set the tool timeout to the expected wait plus 60 s; if
+the tool caps timeouts lower, use the largest allowed wait.
+
+- CI: `gh pr checks N --watch --interval 60` blocks until every check
+  finishes (add `--fail-fast` to stop on the first failure). Its exit
+  status is not a verdict; read the result with
+  `gh pr checks N --json name,bucket --jq '.[] | select(.bucket != "pass" and .bucket != "skipping")'`.
+  A `CodeRabbit` check of `skipping` means no review ran (usually rate
+  limited).
+- CodeRabbit window: one `sleep SECONDS` until the computed time, then
+  re-read comments and post.
+- CodeRabbit review after posting: it takes a few minutes; `sleep 600`, then
+  run the verdict commands once.
+
+Stop and report on: new review, new unresolved thread, check failure,
+`PASS`, or limit hit again. If the step budget is nearly used up, report
+`WAITING` with the next action and time instead of running out silently.
