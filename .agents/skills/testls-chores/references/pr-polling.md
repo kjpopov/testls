@@ -122,9 +122,10 @@ the tool caps timeouts lower, use the largest allowed wait.
 - CI: `gh pr checks N --watch --interval 60` blocks until every check
   finishes (add `--fail-fast` to stop on the first failure). Its exit
   status is not a verdict; read the result with
-  `gh pr checks N --json name,bucket --jq '.[] | select(.bucket != "pass" and (.bucket != "skipping" or .name == "CodeRabbit"))'`.
-  A `CodeRabbit` check of `skipping` means no review ran (usually rate
-  limited); report it.
+  `gh pr checks N --json name,state,bucket,description,link --jq '.[] | select(.bucket != "pass" and (.bucket != "skipping" or .name == "CodeRabbit"))'`.
+  Report a skipped `CodeRabbit` check with its raw `state` and
+  `description` verbatim; don't infer the cause. A rate limit is confirmed
+  only by a limit comment (see [Rate limits](#rate-limits)).
 - CodeRabbit window (only if the caller asked for a review): one
   `sleep SECONDS` until the computed time, then re-read comments and post.
 - CodeRabbit review after posting: it takes a few minutes; `sleep 600`, then
