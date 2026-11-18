@@ -16,14 +16,26 @@ Report failing or pending checks by name. For a failing job:
 ```sh
 gh run view RUN_ID --json jobs --jq '.jobs[] | select(.conclusion=="failure") | "\(.databaseId) \(.name)"'
 mkdir -p target
-gh run view --job JOB_ID --log-failed > target/job-JOB_ID.log
-sed -n '/---- .* stdout ----$/,/failures:$/p' target/job-JOB_ID.log
+if gh run view --job JOB_ID --log-failed > target/job-JOB_ID.log; then
+  sed -n '/---- .* stdout ----$/,$p' target/job-JOB_ID.log
+else
+  echo "log fetch failed: exit=$?"
+fi
 ```
 
-Run the last two commands once per failed job (`JOB_ID` is the
-`databaseId` printed first) and report the complete test failure sections
-printed. If nothing prints (build, lint or setup failure), report
-`tail -80 target/job-JOB_ID.log` and say if the error starts earlier.
+Run the `if` block once per failed job (`JOB_ID` is the `databaseId`
+printed first). If the fetch failed, report its error verbatim as
+`BLOCKED` for that job and don't read the file. Otherwise report the
+test failure sections printed, complete. If nothing prints (build, lint or
+setup failure), find the first error and report from there to the end:
+
+```sh
+grep -nE -m1 'error(\[E[0-9]+\])?:|FAILED|panicked' target/job-JOB_ID.log
+sed -n 'LINE,$p' target/job-JOB_ID.log
+```
+
+`LINE` is the number `grep` printed; if it printed nothing, report the
+whole file.
 
 A job cancelled at its time limit with no test failure is likely infra;
 report it as such, don't rerun unless asked.
