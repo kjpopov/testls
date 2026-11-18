@@ -182,7 +182,7 @@ mod tests {
             .map(|id| format!(r#"{{"id":"{id}","severity":"low","message":"m"}}"#))
             .collect();
         format!(
-            r#"{{"schema_version":1,"tool":{{"name":"testls","version":"0"}},"started_at":0,"target":{{"input":"{input}","address":"192.0.2.1:443","sni":null}},"findings":[{}],"suppressed":[{{"id":"s.id","severity":"low","message":"m","reason":"r"}}]}}"#,
+            r#"{{"schema_version":2,"tool":{{"name":"testls","version":"0"}},"started_at":0,"target":{{"input":"{input}","address":"192.0.2.1:443","sni":null}},"findings":[{}],"suppressed":[{{"id":"s.id","severity":"low","message":"m","reason":"r"}}]}}"#,
             findings.join(",")
         )
     }
@@ -271,10 +271,10 @@ mod tests {
         let err = Baseline::parse(r#"{"runs":[]}"#).expect_err("not a report");
         assert!(err.contains("not a testls JSON report"), "{err}");
         let err = Baseline::parse(
-            &document("a", &[]).replace(r#""schema_version":1"#, r#""schema_version":2"#),
+            &document("a", &[]).replace(r#""schema_version":2"#, r#""schema_version":1"#),
         )
         .expect_err("version");
-        assert!(err.contains("schema_version 2"), "{err}");
+        assert!(err.contains("schema_version 1"), "{err}");
         let err = Baseline::parse(
             r#"{"schema_version":1,"target":{"input":"a"},"findings":[{"id":"cert.revoked"}]}"#,
         )

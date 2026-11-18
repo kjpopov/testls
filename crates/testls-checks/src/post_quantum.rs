@@ -124,6 +124,7 @@ mod tests {
             dh_bits: None,
             dh_prime: None,
             dh_key_reused: None,
+            dh_suites: Vec::new(),
         }
     }
 

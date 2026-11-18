@@ -1080,7 +1080,7 @@ mod tests {
         let (_, _, scan) = send(&app, Method::GET, "/scans/1", &[], None).await;
         let scan: serde_json::Value = serde_json::from_str(&scan).unwrap();
         assert_eq!(scan["status"], "done");
-        assert_eq!(scan["report"]["schema_version"], 1);
+        assert_eq!(scan["report"]["schema_version"], 2);
         let (_, _, list) = send(&app, Method::GET, "/scans", &[], None).await;
         assert!(list.contains(r#""grade":"#), "{list}");
 

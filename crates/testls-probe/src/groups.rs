@@ -24,16 +24,28 @@ pub struct KeyExchangeResult {
     pub groups: Vec<u16>,
     /// Whether the server enforces its own group order.
     pub group_order: CipherOrder,
-    /// Size in bits of the DH prime the server uses with DHE suites, if it
-    /// accepted one.
+    /// Smallest measured DH prime size across accepted suites.
     pub dh_bits: Option<usize>,
-    /// The DH prime itself (big-endian), if the server accepted a DHE suite.
+    /// Prime corresponding to `dh_bits` (big-endian).
     pub dh_prime: Option<Vec<u8>>,
-    /// Whether two DHE handshakes got the same parameters and server public
-    /// value, which means the server reuses its ephemeral key (a Raccoon
-    /// precondition). `None` if the second handshake failed or did not
-    /// complete with a DHE suite.
+    /// Whether any suite reused its DH public value. False requires a
+    /// comparable pair for every suite; otherwise the result is unknown.
     pub dh_key_reused: Option<bool>,
+    /// Per-suite DH measurements, including unsuccessful or unsupported probes.
+    pub dh_suites: Vec<DhSuiteResult>,
+}
+
+/// DH evidence for one accepted cipher suite.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DhSuiteResult {
+    /// IANA cipher suite code point.
+    pub suite: u16,
+    /// Prime size, or `None` when the measurement failed or is unsupported.
+    pub bits: Option<usize>,
+    /// Measured prime in big-endian form.
+    pub prime: Option<Vec<u8>>,
+    /// Reuse of the public value for comparable parameters in this suite.
+    pub key_reused: Option<bool>,
 }
 
 /// Whether `suite` carries `ServerECDHParams` in its `ServerKeyExchange`.
@@ -199,7 +211,8 @@ async fn dh_params(
     else {
         return Ok(None);
     };
-    if !suites.contains(&hello.cipher_suite)
+    if hello.is_hello_retry_request()
+        || !suites.contains(&hello.cipher_suite)
         || hello.negotiated_version().map_err(ProbeError::Decode)? != version
     {
         return Ok(None);
@@ -214,9 +227,9 @@ async fn dh_params(
 /// `accepted` are the cipher suites found by
 /// [`enumerate_ciphers`](crate::enumerate_ciphers) for the same version.
 /// Groups are enumerated over its ECDHE suites (all TLS 1.3 suites at
-/// TLS 1.3), at a cost of one connection per accepted group plus two. If
-/// any DHE suite was accepted, two more connections fetch the DH parameters
-/// and check whether the server reuses its ephemeral key.
+/// TLS 1.3), at a cost of one connection per accepted group plus two.
+/// Each accepted DHE or anonymous DH suite gets up to two connections to
+/// measure its parameters and check key reuse. DHE-PSK remains unmeasured.
 /// SSLv2 and SSLv3 have no `supported_groups` extension, so only the DH
 /// size is probed there.
 ///
@@ -240,6 +253,7 @@ pub async fn probe_key_exchange(
         dh_bits: None,
         dh_prime: None,
         dh_key_reused: None,
+        dh_suites: Vec::new(),
     };
     if version <= ProtocolVersion::SSL2 {
         return Ok(result);
@@ -263,23 +277,45 @@ pub async fn probe_key_exchange(
         (result.groups, result.group_order) =
             enumerate_groups(transport, version, &ecdhe, sni).await?;
     }
-    let dhe: Vec<u16> = accepted
-        .iter()
-        .copied()
-        .filter(|&s| is_dhe_suite(s))
-        .collect();
-    if version < ProtocolVersion::TLS13
-        && !dhe.is_empty()
-        && let Some(first) = dh_params(transport, version, &dhe, sni).await?
-    {
-        // A failed second handshake only leaves reuse unknown.
-        let second = dh_params(transport, version, &dhe, sni)
-            .await
-            .ok()
-            .flatten();
-        result.dh_bits = Some(first.prime_bits());
-        result.dh_key_reused = second.map(|s| s == first);
-        result.dh_prime = Some(first.p);
+    if version < ProtocolVersion::TLS13 {
+        for suite in accepted.into_iter().filter(|&s| {
+            is_dhe_suite(s) || cipher_suite(s).is_some_and(|c| c.name.starts_with("TLS_DHE_PSK_"))
+        }) {
+            if result.dh_suites.iter().any(|d| d.suite == suite) {
+                continue;
+            }
+            let mut sample = DhSuiteResult {
+                suite,
+                bits: None,
+                prime: None,
+                key_reused: None,
+            };
+            if is_dhe_suite(suite)
+                && let Ok(Some(first)) = dh_params(transport, version, &[suite], sni).await
+            {
+                let second = dh_params(transport, version, &[suite], sni)
+                    .await
+                    .ok()
+                    .flatten();
+                sample.key_reused = second.and_then(|s| {
+                    (s.p == first.p && s.g == first.g).then_some(s.public_key == first.public_key)
+                });
+                sample.bits = Some(first.prime_bits());
+                sample.prime = Some(first.p);
+                if result.dh_bits.is_none_or(|bits| sample.bits < Some(bits)) {
+                    result.dh_bits = sample.bits;
+                    result.dh_prime.clone_from(&sample.prime);
+                }
+            }
+            result.dh_suites.push(sample);
+        }
+        if result.dh_suites.iter().any(|d| d.key_reused == Some(true)) {
+            result.dh_key_reused = Some(true);
+        } else if !result.dh_suites.is_empty()
+            && result.dh_suites.iter().all(|d| d.key_reused == Some(false))
+        {
+            result.dh_key_reused = Some(false);
+        }
     }
     Ok(result)
 }
@@ -541,6 +577,88 @@ mod mock_server {
         assert_eq!(r.dh_bits, Some(1024));
         assert_eq!(r.dh_prime.as_ref().map(Vec::len), Some(128));
         assert_eq!(r.dh_key_reused, Some(false));
+    }
+
+    /// Every accepted suite is sampled separately; failures do not erase
+    /// successful measurements and incomparable parameters cannot prove reuse.
+    #[tokio::test]
+    async fn mixed_dh_suites_and_failed_probes() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut attempts = std::collections::HashMap::<u16, usize>::new();
+            for _ in 0..6 {
+                let (mut s, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0; 1 << 16];
+                let mut n = 0;
+                while n < 5 || n < 5 + usize::from(u16::from_be_bytes([buf[3], buf[4]])) {
+                    n += s.read(&mut buf[n..]).await.unwrap();
+                }
+                let (suites, _) = parse_hello(&buf[..n]);
+                assert_eq!(suites.len(), 1);
+                let suite = suites[0];
+                let count = attempts.entry(suite).or_default();
+                *count += 1;
+                let response = match suite {
+                    0x0033 | 0x0034 => {
+                        let len = if suite == 0x0033 { 256 } else { 128 };
+                        let mut ske = u16::try_from(len).unwrap().to_be_bytes().to_vec();
+                        ske.extend(vec![0xff; len]);
+                        // The anonymous suite changes generator on the second attempt.
+                        ske.extend([
+                            0,
+                            1,
+                            if suite == 0x0034 && *count == 2 { 3 } else { 2 },
+                            0,
+                            1,
+                            5,
+                        ]);
+                        record(&[
+                            (2, server_hello([7; 32], suite, &[])),
+                            (12, ske),
+                            (14, vec![]),
+                        ])
+                    }
+                    // Malformed parameters must remain unmeasured.
+                    0x003a => record(&[
+                        (2, server_hello([7; 32], suite, &[])),
+                        (12, vec![0, 4, 1]),
+                        (14, vec![]),
+                    ]),
+                    // An answer using another protocol version is unmeasured too.
+                    0x0032 => {
+                        let mut h = server_hello([7; 32], suite, &[]);
+                        h[1] = 2;
+                        record(&[(2, h), (12, vec![0, 1, 7, 0, 1, 2, 0, 1, 5]), (14, vec![])])
+                    }
+                    _ => panic!("unexpected suite"),
+                };
+                s.write_all(&response).await.unwrap();
+            }
+        });
+        let r = probe_key_exchange(
+            &Transport::new(addr),
+            ProtocolVersion::TLS12,
+            &[0x003a, 0x0033, 0x0034, 0x0032, 0x00aa],
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.dh_bits, Some(1024));
+        assert_eq!(
+            r.dh_suites
+                .iter()
+                .map(|d| (d.suite, d.bits, d.key_reused))
+                .collect::<Vec<_>>(),
+            vec![
+                (0x003a, None, None),
+                (0x0033, Some(2048), Some(true)),
+                (0x0034, Some(1024), None),
+                (0x0032, None, None),
+                (0x00aa, None, None)
+            ]
+        );
+        assert_eq!(r.dh_key_reused, Some(true));
     }
 
     /// TLS 1.3: groups, including the ML-KEM hybrid, are found via HRR.

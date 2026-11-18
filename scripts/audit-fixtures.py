@@ -114,9 +114,9 @@ def manifest(path, selected, *, body=None):
 
 
 def testls_result(data):
-    """Normalize schema-v1 testls measurements, retaining unknown and failed sections."""
+    """Normalize schema-v1/v2 testls measurements, retaining unknown and failed sections."""
     if (not isinstance(data, dict) or type(data.get("schema_version")) is not int
-            or data["schema_version"] != 1):
+            or data["schema_version"] not in (1, 2)):
         raise ValueError("unsupported testls JSON schema")
     result = {"protocols": {}, "ciphers": {}, "vulnerabilities": {}, "incomplete": []}
     for row in data["protocols"]:

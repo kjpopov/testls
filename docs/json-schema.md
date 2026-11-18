@@ -1,8 +1,14 @@
 # JSON report schema
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:2db999b6a6ba266d2bd0150f06a88ea6b652362028fce7d5be8d6ef6ca5ca95b -->
+
 `testls --format json` prints one JSON document to stdout when the scan
 finishes. With several targets it prints a JSON array holding one document
-per target, in scan order. This page describes schema version **1**.
+per target, in scan order. This page describes schema version **2**. Version 2 changes `dh_bits` from one selected suite to the smallest measured prime; version 1 baseline files must be regenerated.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Stability
 
@@ -23,9 +29,13 @@ per target, in scan order. This page describes schema version **1**.
 
 ## Document
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:ba97129952f29742d631daedb93a6bf3921f0949ca1a1164ef2c3cbba59120f9 -->
+
 | Field | Type | Description |
 | --- | --- | --- |
-| `schema_version` | integer | Schema version, currently `1` |
+| `schema_version` | integer | Schema version, currently `2` |
 | `tool.name` | string | Always `"testls"` |
 | `tool.version` | string | testls version |
 | `target.input` | string | Target as given on the command line |
@@ -45,6 +55,8 @@ per target, in scan order. This page describes schema version **1**.
 | `grade` | object | Overall [grade](#grade) |
 | `findings` | array | [Findings](#finding), most severe first |
 | `suppressed` | array | [Suppressed findings](#suppressed-finding) from `.testls.toml` or `--baseline`, most severe first |
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ### Protocol
 
@@ -66,18 +78,28 @@ per target, in scan order. This page describes schema version **1**.
 | `suites[].severity` | string | Severity of the suite, see [Finding](#finding) |
 | `error` | string | Only when enumeration failed; `suites` is then empty |
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:e08d2b44b9db6caeb8a3e0b4b916a9df67f50e98a39804776be5f1faa6c400fd -->
+
 ### Key exchange
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `protocol` | string | Protocol version, as above |
-| `group_order` | string or null | `"server"` or `"client"` preference; `null` if fewer than two groups were accepted or the probe failed |
-| `groups` | array | Supported groups (named curves, FFDHE, ML-KEM) in the server's order of choice; empty when no ECDHE suite is accepted |
-| `groups[].id` | string | Hex code point, e.g. `"0x11ec"` |
-| `groups[].name` | string | IANA name, e.g. `"X25519MLKEM768"` |
-| `groups[].severity` | string | Severity of the group, see [Finding](#finding) |
-| `dh_bits` | integer or null | Size of the ephemeral DH prime offered with DHE suites (TLSv1.2 and older); `null` without DHE |
-| `error` | string | Only when the probe failed; `groups` is then empty |
+| `group_order` | string or null | `"server"` or `"client"`; null if fewer than two groups or the probe failed |
+| `groups` | array | Supported named groups, with `id`, `name` and `severity` |
+| `dh_bits` | integer or null | Smallest measured finite-field DH prime size; null if none measured |
+| `dh_suites` | array | One entry per accepted DHE or anonymous DH suite, including unmeasured DHE-PSK |
+| `dh_suites[].suite` | string | IANA cipher code point, e.g. `"0x0034"` |
+| `dh_suites[].bits` | integer or null | Prime size; null if unmeasured |
+| `dh_suites[].prime` | string or null | Prime in big-endian hexadecimal; null if unmeasured |
+| `dh_suites[].key_reused` | boolean or null | Reuse across two handshakes with the same suite, prime and generator; null if incomparable or unmeasured |
+| `error` | string | Only when the overall probe failed; `groups` and `dh_suites` are then empty |
+
+
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ### Post-quantum readiness
 
@@ -246,9 +268,17 @@ It does not count towards `--fail-on`.
 
 Abbreviated:
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:4ca923f86dbad72e8351ddec36e200013b537e5f4c3978adf3382a332bfcac1a -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:c873d59bcf80136d1fbf4f9275deff711c5fbccbcbbce5aace2fa748bdaf4d93 -->
+
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "tool": { "name": "testls", "version": "0.1.0" },
   "target": { "input": "example.com", "address": "192.0.2.1:443", "sni": "example.com" },
   "started_at": 1792835801,
@@ -273,7 +303,8 @@ Abbreviated:
         { "id": "0x11ec", "name": "X25519MLKEM768", "severity": "ok" },
         { "id": "0x001d", "name": "x25519", "severity": "ok" }
       ],
-      "dh_bits": null
+      "dh_bits": null,
+      "dh_suites": []
     }
   ],
   "post_quantum": {
@@ -343,3 +374,7 @@ Abbreviated:
   "suppressed": []
 }
 ```
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->

@@ -516,7 +516,12 @@ pub fn policy_findings(policy: Policy, input: &PolicyInput<'_>) -> Vec<Finding> 
     match input.key_exchange {
         Some(results) => {
             findings.extend(group_deviations(policy, results));
-            if failed(input.key_exchange_errors) {
+            if failed(input.key_exchange_errors)
+                || results.iter().any(|r| {
+                    rules.versions.contains(&r.version)
+                        && r.dh_suites.iter().any(|d| d.bits.is_none())
+                })
+            {
                 untested.push("key exchange groups");
             }
         }
@@ -611,11 +616,21 @@ fn group_deviations(policy: Policy, results: &[KeyExchangeResult]) -> Vec<Findin
                 seen.push(what);
             }
         }
-        if let Some(prime) = &result.dh_prime
-            && let Some(what) = prime_deviation(prime, allowed, rules)
-            && !seen.contains(&what)
-        {
-            seen.push(what);
+        let primes: Vec<_> = if result.dh_suites.is_empty() {
+            result.dh_prime.iter().collect()
+        } else {
+            result
+                .dh_suites
+                .iter()
+                .filter_map(|d| d.prime.as_ref())
+                .collect()
+        };
+        for prime in primes {
+            if let Some(what) = prime_deviation(prime, allowed, rules)
+                && !seen.contains(&what)
+            {
+                seen.push(what);
+            }
         }
     }
     seen.iter()
@@ -859,6 +874,7 @@ mod tests {
             dh_bits: None,
             dh_prime: None,
             dh_key_reused: None,
+            dh_suites: Vec::new(),
         }
     }
 
@@ -1322,6 +1338,49 @@ mod tests {
         assert_eq!(
             messages(Policy::Nist80052r2),
             ["DHE uses a custom 2047-bit prime, which nist-800-52r2 does not allow"]
+        );
+    }
+
+    /// Policy checks all measured suite primes and reports incomplete coverage.
+    #[test]
+    fn mixed_dhe_policy() {
+        use testls_probe::DhSuiteResult;
+        let mut k = groups(ProtocolVersion::TLS12, &[]);
+        k.dh_suites = vec![
+            DhSuiteResult {
+                suite: 0x0033,
+                bits: Some(2048),
+                prime: Some(unhex(testls_data::known_dh_primes()[11].hex)),
+                key_reused: Some(false),
+            },
+            DhSuiteResult {
+                suite: 0x0034,
+                bits: Some(1024),
+                prime: Some(vec![0xff; 128]),
+                key_reused: Some(false),
+            },
+            DhSuiteResult {
+                suite: 0x003a,
+                bits: None,
+                prime: None,
+                key_reused: None,
+            },
+        ];
+        let results = [k];
+        let input = PolicyInput {
+            key_exchange: Some(&results),
+            ..bsi_input()
+        };
+        let findings = policy_findings(Policy::PciDss4, &input);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.id == "policy.group" && f.message.contains("1024-bit"))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.id == "policy.incomplete" && f.message.contains("key exchange"))
         );
     }
 

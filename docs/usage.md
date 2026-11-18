@@ -16,6 +16,16 @@ what a finding means and why it matters.
 | Vulnerabilities | Derived checks: POODLE, BEAST, SWEET32, Logjam, BREACH, ALPACA, Opossum, … |
 | Handshake | ClientHello tolerance, TLSv1.3 details, post-quantum readiness |
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:4bf8373fb4018c0cfafc273bd979b7ec573d2d2e53723fe40d75f36f264c3629 -->
+
+## DH measurements
+
+For each accepted finite-field DHE or anonymous DH suite in TLS 1.2 and earlier, the default and full profiles make up to two version-validated handshakes. The first measures the prime and the second checks reuse only when the prime and generator match. The reported DH size is the smallest measured; JSON includes each suite's prime and reuse result. Failed or unsupported measurements, including DHE-PSK, are marked incomplete. A negative Logjam or Raccoon verdict requires complete relevant coverage. Other groups a server might use with a suite remain untested.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 ## Targets
 
 ```bash

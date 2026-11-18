@@ -4,6 +4,22 @@ State left by the last agent session for the next one. Read this right
 after [AGENTS.md](../AGENTS.md) (then [agent-workflow.md](agent-workflow.md)
 if `gh` is allowed); update it when a session ends.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:83833dce0e5475648f946dd94951e70392b3b5255a5304195850dd30790836ea -->
+
+## DH suite coverage (#162)
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:a2af9667853288bada9fd15f7d9fc2b6541741d4fed9243ad911797eeab5d6bc -->
+
+Per-suite DH measurements for #162 retain failed and unsupported suites, evaluate all measured primes, and compare reuse only within a suite with matching parameters. JSON schema 2 changes `dh_bits` to the smallest measurement and adds suite evidence; schema 1 baselines are rejected. The legacy fixture reports the 1024-bit anonymous group. See the task validation record for checks.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 ## State (2026-11-10)
 
 - Latest release **v0.6.0** (web service: `testls serve`, REST/SSE,

@@ -154,11 +154,20 @@ impl Inputs<'_> {
             let Some(k) = self.key_exchange.iter().find(|k| k.version == p.version) else {
                 return true;
             };
-            // The probe never measures DHE-PSK, so its parameters stay unknown.
-            let dhe_psk = self
-                .suite_names(p.version)
-                .any(|n| n.starts_with("TLS_DHE_PSK_"));
-            dhe_psk || (self.accepts_dhe(p.version) && k.dh_bits.is_none())
+            self.ciphers
+                .iter()
+                .filter(|c| c.version == p.version)
+                .flat_map(|c| &c.suites)
+                .filter(|&&suite| {
+                    let name = cipher_name(p.version, suite);
+                    name.starts_with("TLS_DHE_") || name.starts_with("TLS_DH_anon_")
+                })
+                .any(|&suite| {
+                    !k.dh_suites
+                        .iter()
+                        .any(|d| u32::from(d.suite) == suite && d.bits.is_some())
+                })
+                || k.dh_suites.iter().any(|d| d.bits.is_none())
         })
     }
 
@@ -297,35 +306,50 @@ fn logjam(inputs: &Inputs) -> Vulnerability {
     }
     let mut detail = None;
     for k in inputs.legacy_key_exchange() {
-        let Some(bits) = k.dh_bits else { continue };
-        if bits < 1024 {
-            let text = format!("{} uses a {bits}-bit DH group", k.version);
-            return vuln(id, name, VulnStatus::Vulnerable, text, "dh.weak");
+        // Older in-memory results may contain only the summary fields.
+        let summary = (k.dh_bits, k.dh_prime.as_deref());
+        let samples: Vec<_> = if k.dh_suites.is_empty() {
+            vec![summary]
+        } else {
+            k.dh_suites
+                .iter()
+                .map(|d| (d.bits, d.prime.as_deref()))
+                .collect()
+        };
+        for (bits, prime) in samples {
+            let Some(bits) = bits else { continue };
+            if bits < 1024 {
+                let text = format!("{} uses a {bits}-bit DH group", k.version);
+                return vuln(id, name, VulnStatus::Vulnerable, text, "dh.weak");
+            }
+            let known = prime.and_then(testls_data::known_dh_prime);
+            if let Some(p) = known.filter(|p| !p.ffdhe && bits <= 1024) {
+                let text = format!(
+                    "{} uses the well-known {} ({})",
+                    k.version, p.name, p.source
+                );
+                return vuln(id, name, VulnStatus::Vulnerable, text, "vuln.logjam");
+            }
+            let text = match known {
+                Some(p) => format!("{bits}-bit {}", p.name),
+                None => format!("{bits}-bit custom DH group"),
+            };
+            if detail.as_ref().is_none_or(|(smallest, _)| bits < *smallest) {
+                detail = Some((bits, text));
+            }
         }
-        let known = k.dh_prime.as_deref().and_then(testls_data::known_dh_prime);
-        if let Some(p) = known.filter(|p| !p.ffdhe && bits <= 1024) {
-            let text = format!(
-                "{} uses the well-known {} ({})",
-                k.version, p.name, p.source
-            );
-            return vuln(id, name, VulnStatus::Vulnerable, text, "vuln.logjam");
-        }
-        detail = Some(match known {
-            Some(p) => format!("{bits}-bit {}", p.name),
-            None => format!("{bits}-bit custom DH group"),
-        });
     }
     if inputs.dh_unmeasured() {
         return vuln(
             id,
             name,
             VulnStatus::NotTested,
-            "DH parameters not measured for every offered version",
+            "DH parameters not measured for every accepted suite",
             "",
         );
     }
     match detail {
-        Some(text) => vuln(id, name, VulnStatus::NotVulnerable, text, ""),
+        Some((_, text)) => vuln(id, name, VulnStatus::NotVulnerable, text, ""),
         None if inputs.legacy_key_exchange().next().is_some() => vuln(
             id,
             name,
@@ -731,6 +755,7 @@ mod tests {
             dh_bits: prime.as_ref().map(|p| p.len() * 8),
             dh_prime: prime,
             dh_key_reused: reused,
+            dh_suites: Vec::new(),
         }
     }
 
@@ -932,6 +957,48 @@ mod tests {
         let k = [kx(tls12, Some(vec![0xff; 64]), None)];
         let list = assess_vulnerabilities(&p, &[], &k, None, None, None);
         assert_eq!(status(&list, "logjam"), VulnStatus::Vulnerable);
+    }
+
+    /// A weak or known prime on any suite wins, while failed suites prevent
+    /// a negative Logjam or Raccoon verdict.
+    #[test]
+    fn mixed_dh_evidence() {
+        use testls_probe::DhSuiteResult;
+        let version = ProtocolVersion::TLS12;
+        let p = protocols(&[version]);
+        let c = [ciphers(version, &[0x0033, 0x0034, 0x003a])];
+        let sample = |suite, prime: Option<Vec<u8>>, key_reused| DhSuiteResult {
+            suite,
+            bits: prime.as_ref().map(|p| p.len() * 8),
+            prime,
+            key_reused,
+        };
+        let mut k = kx(version, Some(vec![0xff; 256]), None);
+        k.dh_suites = vec![
+            sample(0x0033, Some(vec![0xff; 256]), Some(false)),
+            sample(
+                0x0034,
+                Some(unhex(testls_data::known_dh_primes()[1].hex)),
+                Some(false),
+            ),
+            sample(0x003a, None, None),
+        ];
+        let assess = |k: &KeyExchangeResult| {
+            assess_vulnerabilities(&p, &c, std::slice::from_ref(k), None, None, None)
+        };
+        assert_eq!(status(&assess(&k), "logjam"), VulnStatus::Vulnerable);
+        assert_eq!(status(&assess(&k), "raccoon"), VulnStatus::NotTested);
+        k.dh_suites[1] = sample(0x0034, Some(vec![0xff; 128]), Some(false));
+        assert_eq!(status(&assess(&k), "logjam"), VulnStatus::NotTested);
+        k.dh_suites[2] = sample(0x003a, Some(vec![0xff; 256]), Some(false));
+        k.dh_key_reused = Some(false);
+        let verdicts = assess(&k);
+        assert_eq!(status(&verdicts, "logjam"), VulnStatus::NotVulnerable);
+        assert_eq!(
+            verdicts.iter().find(|v| v.id == "logjam").unwrap().detail,
+            "1024-bit custom DH group"
+        );
+        assert_eq!(status(&verdicts, "raccoon"), VulnStatus::NotVulnerable);
     }
 
     /// Missing data leads to "not tested" rather than a guess.

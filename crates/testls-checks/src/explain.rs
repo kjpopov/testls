@@ -193,6 +193,12 @@ const EXPLANATIONS: &[Explanation] = &[
         "testls",
     ),
     entry(
+        "dh.incomplete",
+        "DH measurements incomplete",
+        "At least one accepted finite-field DH suite could not be measured, or uses unsupported DHE-PSK parameters. Weak parameters may be missed.",
+        "RFC 5246 §7.4.3",
+    ),
+    entry(
         "dh.weak",
         "Weak finite-field DH parameters",
         "DH primes below 1024 bits are within reach of well-funded attackers (Logjam); below 2048 bits they fall short of current guidance. Use 2048 bits or more, ideally the RFC 7919 groups, or prefer ECDHE.",
