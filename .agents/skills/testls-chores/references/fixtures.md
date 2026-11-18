@@ -39,11 +39,11 @@ drop the filters.
 line whose name contains it. A filter that matched no test (typo, renamed
 test) is `FAIL` even with `exit=0`; name it. If the exit is non-zero and
 `grep` shows no failing test, it is a build or setup error: report
-`tail -40 "$log"`. For a failing test, report its `panicked at` line plus
-the assertion message from the log:
+`tail -40 "$log"`. For a failing test, report its complete failure section
+(`---- NAME stdout ----` up to the `failures:` summary) from the log:
 
 ```sh
-grep -nE -A15 "panicked at" "$log"
+sed -n '/^---- .* stdout ----$/,/^failures:$/p' "$log"
 ```
 
 If OCSP fixtures are missing, report `BLOCKED` with the error. Don't run
@@ -58,5 +58,9 @@ Only when the caller asks; another agent may use the same containers:
 podman compose -f tests/servers/compose.yaml stop SERVICE...
 ```
 
-Name only the services the caller listed. Use `down` (removes everything)
-only when the caller asks to stop all fixtures.
+Name only the services the caller listed. Only when the caller asks to
+stop all fixtures, remove everything:
+
+```sh
+podman compose -f tests/servers/compose.yaml down
+```

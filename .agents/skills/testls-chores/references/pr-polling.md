@@ -15,12 +15,15 @@ Report failing or pending checks by name. For a failing job:
 
 ```sh
 gh run view RUN_ID --json jobs --jq '.jobs[] | select(.conclusion=="failure") | "\(.databaseId) \(.name)"'
-gh run view --job JOB_ID --log-failed | grep -nE "error|panicked|FAILED|failed" | head -40
+mkdir -p target
+gh run view --job JOB_ID --log-failed > target/job-JOB_ID.log
+sed -n '/---- .* stdout ----$/,/failures:$/p' target/job-JOB_ID.log
 ```
 
-Run the second command once per failed job (`JOB_ID` is the `databaseId`
-printed first). If it prints nothing, report that job's
-`--log-failed | tail -40` instead.
+Run the last two commands once per failed job (`JOB_ID` is the
+`databaseId` printed first) and report the complete test failure sections
+printed. If nothing prints (build, lint or setup failure), report
+`tail -80 target/job-JOB_ID.log` and say if the error starts earlier.
 
 A job cancelled at its time limit with no test failure is likely infra;
 report it as such, don't rerun unless asked.
