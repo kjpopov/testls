@@ -7,9 +7,20 @@ delete of a remote branch is recoverable but still costly.
 
 List after `git fetch --prune`:
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:0f536eb2a90e134bf9779d3393d632b68ba4042826964762abbd7e17940d362e -->
+
 ```sh
-git branch -r --merged origin/main | grep -v 'origin/HEAD'
+git for-each-ref --merged=refs/remotes/origin/main \
+  --format='%(refname:lstrip=3)' refs/remotes/origin/ |
+  awk '$0 != "HEAD" && $0 != "main"'
 ```
+
+This lists branch names under `origin` and excludes the target branch. Never
+delete the target or a remote's default branch, even if it appears merged.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 Delete in one batch:
 
@@ -24,11 +35,23 @@ Traps:
   prints `remote ref does not exist` for it and fails the whole push — the
   other deletions in that push did not happen. Collect the surviving refs
   from the error list and push them again.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:04f6bce6f6c905d1183617d42ebc100a78eb8991c586a1239c65c6ce92cd08b8 -->
+
 - **Squash-merge blindness.** `--merged` misses squash-merged branches.
-  `git cherry main BR` reports their commits as unique (`+`); that is a
-  false positive for squash merges. Confirm by content: `git grep -il
-  <feature-keyword> origin/main`, or read the handoff/PLAN notes for the
-  merge commit, before deleting.
+  Inspect the complete branch diff from its merge base, including additions,
+  modifications, deletions, renames and binary files, and compare every
+  change with the target and any later changes. A keyword match or a note
+  alone does not establish that all branch work landed. If that cannot be
+  verified, keep the branch and report it. For example:
+
+  ```sh
+  git diff --stat "$(git merge-base origin/main BR)" BR
+  git diff --binary "$(git merge-base origin/main BR)" BR
+  ```
+
+<!-- /coderabbit-ai-generated:v1 -->
 - **Current branch.** Never delete the branch checked out in any
   worktree; `git worktree list` shows which branch each uses.
 
@@ -56,17 +79,22 @@ reported, not removed.
 
 ## Stashes
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:77f1afd05142ad58cd79592adb67cc62c999271163516e8b0da407b3d152ace1 -->
+
 ```sh
 git stash list
-git stash show --stat stash@{0}
-git diff stash@{0}^ stash@{0} | head -80
+git stash show --include-untracked --stat 'stash@{0}'
+git stash show --include-untracked --patch 'stash@{0}'
 ```
 
-Compare the stashed diff against the target branch: if the content is
-already there (possibly reworded), the stash is redundant and can be
-dropped with `git stash drop`. If it carries unique notes or fixes, keep
-it and say so — a stash that needs a manual merge is a report item, not a
-cleanup item.
+Inspect the complete patch, including stashed untracked or ignored files,
+and compare it with the target branch. Report redundant and unique content.
+Keep every stash unless the user explicitly named it for deletion, even when
+its content appears redundant.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Build artifacts
 
@@ -85,8 +113,15 @@ If it fails, report the divergence instead of forcing.
 
 ## Object hygiene
 
-`git count-objects -vH` first: if `size-pack` is small and garbage is
-near zero, `git gc` buys nothing. Otherwise `git gc --prune=now -q`.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:85fb878dd7e06c89f3d4dcb8296cef4420f3f74f0dffd83300ed388a844b0ce2 -->
+
+Use `git count-objects -vH` to report object storage. Do not run `git gc`
+or prune unreachable objects during routine cleanup: they may contain
+recoverable commits or other work.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Push auth
 

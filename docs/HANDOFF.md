@@ -4,6 +4,12 @@ State left by the last agent session for the next one. Read this right
 after [AGENTS.md](../AGENTS.md) (then [agent-workflow.md](agent-workflow.md)
 if `gh` is allowed); update it when a session ends.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+## Housekeeping skill review (2026-11-18)
+
+- PR #180 follow-up protects target and default branches, checks complete branch changes, keeps unnamed stashes and unreachable objects, and fixes skill metadata YAML.
+
 ## State (2026-11-10)
 
 - Latest release **v0.6.0** (web service: `testls serve`, REST/SSE,
