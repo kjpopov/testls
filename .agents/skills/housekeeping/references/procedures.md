@@ -7,10 +7,6 @@ delete of a remote branch is recoverable but still costly.
 
 List after `git fetch --prune`:
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:0f536eb2a90e134bf9779d3393d632b68ba4042826964762abbd7e17940d362e -->
-
 ```sh
 git for-each-ref --merged=refs/remotes/origin/main \
   --format='%(refname:lstrip=3)' refs/remotes/origin/ |
@@ -19,8 +15,6 @@ git for-each-ref --merged=refs/remotes/origin/main \
 
 This lists branch names under `origin` and excludes the target branch. Never
 delete the target or a remote's default branch, even if it appears merged.
-
-<!-- /coderabbit-ai-generated:v1 -->
 
 Delete in one batch:
 
@@ -35,10 +29,6 @@ Traps:
   prints `remote ref does not exist` for it and fails the whole push — the
   other deletions in that push did not happen. Collect the surviving refs
   from the error list and push them again.
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:04f6bce6f6c905d1183617d42ebc100a78eb8991c586a1239c65c6ce92cd08b8 -->
-
 - **Squash-merge blindness.** `--merged` misses squash-merged branches.
   Inspect the complete branch diff from its merge base, including additions,
   modifications, deletions, renames and binary files, and compare every
@@ -51,7 +41,6 @@ Traps:
   git diff --binary "$(git merge-base origin/main BR)" BR
   ```
 
-<!-- /coderabbit-ai-generated:v1 -->
 - **Current branch.** Never delete the branch checked out in any
   worktree; `git worktree list` shows which branch each uses.
 
@@ -79,10 +68,6 @@ reported, not removed.
 
 ## Stashes
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:77f1afd05142ad58cd79592adb67cc62c999271163516e8b0da407b3d152ace1 -->
-
 ```sh
 git stash list
 git stash show --include-untracked --stat 'stash@{0}'
@@ -93,8 +78,6 @@ Inspect the complete patch, including stashed untracked or ignored files,
 and compare it with the target branch. Report redundant and unique content.
 Keep every stash unless the user explicitly named it for deletion, even when
 its content appears redundant.
-
-<!-- /coderabbit-ai-generated:v1 -->
 
 ## Build artifacts
 
@@ -113,15 +96,9 @@ If it fails, report the divergence instead of forcing.
 
 ## Object hygiene
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:85fb878dd7e06c89f3d4dcb8296cef4420f3f74f0dffd83300ed388a844b0ce2 -->
-
 Use `git count-objects -vH` to report object storage. Do not run `git gc`
 or prune unreachable objects during routine cleanup: they may contain
 recoverable commits or other work.
-
-<!-- /coderabbit-ai-generated:v1 -->
 
 ## Push auth
 
