@@ -1,6 +1,6 @@
 ---
 name: housekeeping
-description: 'Use when asked to clean up a repository: delete merged branches, remove stale worktrees and stashes, shrink build artifacts, refresh local refs.'
+description: 'Use when asked to do housekeeping or clean up a repository: delete merged branches, remove stale worktrees and stashes, shrink build artifacts, refresh local refs.'
 ---
 
 # Housekeeping
