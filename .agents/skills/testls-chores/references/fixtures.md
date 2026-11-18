@@ -51,5 +51,8 @@ fixture under `crates/testls-checks/src/testdata`.
 Only when the caller asks; another agent may use the same containers:
 
 ```sh
-podman compose -f tests/servers/compose.yaml down
+podman compose -f tests/servers/compose.yaml stop SERVICE...
 ```
+
+Name only the services the caller listed. Use `down` (removes everything)
+only when the caller asks to stop all fixtures.

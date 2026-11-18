@@ -15,8 +15,12 @@ Report failing or pending checks by name. For a failing job:
 
 ```sh
 gh run view RUN_ID --json jobs --jq '.jobs[] | select(.conclusion=="failure") | .name + " " + .url'
-gh run view RUN_ID --log-failed | tail -40
+gh run view --job JOB_ID --log-failed | grep -nE "error|panicked|FAILED|failed" | head -40
 ```
+
+Run the second command once per failed job (`JOB_ID` is the number at the
+end of the job URL). If it prints nothing, report that job's
+`--log-failed | tail -40` instead.
 
 A job cancelled at its time limit with no test failure is likely infra;
 report it as such, don't rerun unless asked.
@@ -101,8 +105,9 @@ gh api --paginate --slurp repos/OWNER/REPO/issues/N/comments | jq -r '[.[][]
   + ([.body | split("\n")[] | select(test("limit|available in|minute"; "i"))] | join("\n"))'
 ```
 
-- If one says "rate limited", "Review limit reached" or "review limit is
-  currently reached" with "available in M minutes", wait until its
+- Use only the newest limit message (printed last). If it says "rate
+  limited", "Review limit reached" or "review limit is currently reached"
+  with "available in M minutes", wait until its
   `updated_at` + M + 2 minutes. CodeRabbit edits the same comment, so
   `updated_at` is the anchor, not `created_at`.
 - Without a stated time, wait until one hour after the last completed review.
