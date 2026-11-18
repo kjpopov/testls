@@ -616,16 +616,7 @@ fn group_deviations(policy: Policy, results: &[KeyExchangeResult]) -> Vec<Findin
                 seen.push(what);
             }
         }
-        let primes: Vec<_> = if result.dh_suites.is_empty() {
-            result.dh_prime.iter().collect()
-        } else {
-            result
-                .dh_suites
-                .iter()
-                .filter_map(|d| d.prime.as_ref())
-                .collect()
-        };
-        for prime in primes {
+        for prime in result.dh_suites.iter().filter_map(|d| d.prime.as_ref()) {
             if let Some(what) = prime_deviation(prime, allowed, rules)
                 && !seen.contains(&what)
             {
@@ -821,7 +812,7 @@ fn hsts_deviation(policy: Policy, response: &HttpResponse, min_age: u64) -> Opti
 
 #[cfg(test)]
 mod tests {
-    use testls_probe::CipherOrder;
+    use testls_probe::{CipherOrder, DhSuiteResult};
 
     use super::*;
 
@@ -872,7 +863,6 @@ mod tests {
             groups: groups.to_vec(),
             group_order: CipherOrder::Server,
             dh_bits: None,
-            dh_prime: None,
             dh_key_reused: None,
             dh_suites: Vec::new(),
         }
@@ -1289,6 +1279,19 @@ mod tests {
         }
     }
 
+    /// One measured `TLS_DHE_RSA_WITH_AES_128_GCM_SHA256` sample for `prime`.
+    fn dh_suite(prime: Option<Vec<u8>>) -> Vec<DhSuiteResult> {
+        prime
+            .map(|p| DhSuiteResult {
+                suite: 0x009e,
+                bits: Some(p.len() * 8),
+                prime: Some(p),
+                key_reused: None,
+            })
+            .into_iter()
+            .collect()
+    }
+
     /// TLSv1.2 DHE primes count as groups even without `supported_groups`:
     /// BSI TR-02102-2 rejects `ffdhe2048`, `ffdhe6144`, MODP group 14 and
     /// custom primes; NIST SP 800-52r2 accepts MODP group 14 but not custom
@@ -1296,7 +1299,7 @@ mod tests {
     #[test]
     fn dhe_primes() {
         let dhe = |prime: Option<Vec<u8>>| KeyExchangeResult {
-            dh_prime: prime,
+            dh_suites: dh_suite(prime),
             ..groups(ProtocolVersion::TLS12, &[])
         };
         let known = |name: &str| {
@@ -1344,7 +1347,6 @@ mod tests {
     /// Policy checks all measured suite primes and reports incomplete coverage.
     #[test]
     fn mixed_dhe_policy() {
-        use testls_probe::DhSuiteResult;
         let mut k = groups(ProtocolVersion::TLS12, &[]);
         k.dh_suites = vec![
             DhSuiteResult {
@@ -1540,7 +1542,7 @@ mod tests {
                 .map(|k| unhex(k.hex))
         };
         let dhe = |prime: Option<Vec<u8>>| KeyExchangeResult {
-            dh_prime: prime,
+            dh_suites: dh_suite(prime),
             ..groups(ProtocolVersion::TLS12, &[0x0017])
         };
         let mut custom2048 = vec![0x80];

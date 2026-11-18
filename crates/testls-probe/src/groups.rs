@@ -26,8 +26,6 @@ pub struct KeyExchangeResult {
     pub group_order: CipherOrder,
     /// Smallest measured DH prime size across accepted suites.
     pub dh_bits: Option<usize>,
-    /// Prime corresponding to `dh_bits` (big-endian).
-    pub dh_prime: Option<Vec<u8>>,
     /// Whether any suite reused its DH public value. False requires a
     /// comparable pair for every suite; otherwise the result is unknown.
     pub dh_key_reused: Option<bool>,
@@ -251,7 +249,6 @@ pub async fn probe_key_exchange(
         groups: Vec::new(),
         group_order: CipherOrder::NotApplicable,
         dh_bits: None,
-        dh_prime: None,
         dh_key_reused: None,
         dh_suites: Vec::new(),
     };
@@ -297,15 +294,18 @@ pub async fn probe_key_exchange(
                     .await
                     .ok()
                     .flatten();
-                sample.key_reused = second.and_then(|s| {
+                sample.key_reused = second.as_ref().and_then(|s| {
                     (s.p == first.p && s.g == first.g).then_some(s.public_key == first.public_key)
                 });
-                sample.bits = Some(first.prime_bits());
-                sample.prime = Some(first.p);
-                if result.dh_bits.is_none_or(|bits| sample.bits < Some(bits)) {
-                    result.dh_bits = sample.bits;
-                    result.dh_prime.clone_from(&sample.prime);
-                }
+                // A server may rotate parameters between handshakes; keep the weaker.
+                let weaker = match second {
+                    Some(s) if s.prime_bits() < first.prime_bits() => s,
+                    _ => first,
+                };
+                let bits = weaker.prime_bits();
+                sample.bits = Some(bits);
+                sample.prime = Some(weaker.p);
+                result.dh_bits = Some(result.dh_bits.map_or(bits, |b| b.min(bits)));
             }
             result.dh_suites.push(sample);
         }
@@ -575,12 +575,13 @@ mod mock_server {
         assert_eq!(r.groups, vec![0x0018, 0x001d, 0x0017]);
         assert_eq!(r.group_order, CipherOrder::Server);
         assert_eq!(r.dh_bits, Some(1024));
-        assert_eq!(r.dh_prime.as_ref().map(Vec::len), Some(128));
+        assert_eq!(r.dh_suites[0].prime.as_ref().map(Vec::len), Some(128));
         assert_eq!(r.dh_key_reused, Some(false));
     }
 
     /// Every accepted suite is sampled separately; failures do not erase
-    /// successful measurements and incomparable parameters cannot prove reuse.
+    /// successful measurements, rotated parameters keep the weaker prime, and
+    /// incomparable parameters cannot prove reuse.
     #[tokio::test]
     async fn mixed_dh_suites_and_failed_probes() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -601,18 +602,16 @@ mod mock_server {
                 *count += 1;
                 let response = match suite {
                     0x0033 | 0x0034 => {
-                        let len = if suite == 0x0033 { 256 } else { 128 };
+                        // The anonymous suite rotates to a smaller prime on the
+                        // second attempt.
+                        let len = if suite == 0x0034 && *count == 2 {
+                            128
+                        } else {
+                            256
+                        };
                         let mut ske = u16::try_from(len).unwrap().to_be_bytes().to_vec();
                         ske.extend(vec![0xff; len]);
-                        // The anonymous suite changes generator on the second attempt.
-                        ske.extend([
-                            0,
-                            1,
-                            if suite == 0x0034 && *count == 2 { 3 } else { 2 },
-                            0,
-                            1,
-                            5,
-                        ]);
+                        ske.extend([0, 1, 2, 0, 1, 5]);
                         record(&[
                             (2, server_hello([7; 32], suite, &[])),
                             (12, ske),

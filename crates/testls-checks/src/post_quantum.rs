@@ -122,7 +122,6 @@ mod tests {
             groups: groups.to_vec(),
             group_order: order,
             dh_bits: None,
-            dh_prime: None,
             dh_key_reused: None,
             dh_suites: Vec::new(),
         }

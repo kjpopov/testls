@@ -119,7 +119,6 @@ mod tests {
             groups: groups.to_vec(),
             group_order: CipherOrder::Server,
             dh_bits,
-            dh_prime: None,
             dh_key_reused: None,
             dh_suites: Vec::new(),
         }

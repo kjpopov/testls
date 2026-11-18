@@ -306,23 +306,13 @@ fn logjam(inputs: &Inputs) -> Vulnerability {
     }
     let mut detail = None;
     for k in inputs.legacy_key_exchange() {
-        // Older in-memory results may contain only the summary fields.
-        let summary = (k.dh_bits, k.dh_prime.as_deref());
-        let samples: Vec<_> = if k.dh_suites.is_empty() {
-            vec![summary]
-        } else {
-            k.dh_suites
-                .iter()
-                .map(|d| (d.bits, d.prime.as_deref()))
-                .collect()
-        };
-        for (bits, prime) in samples {
-            let Some(bits) = bits else { continue };
+        for d in &k.dh_suites {
+            let Some(bits) = d.bits else { continue };
             if bits < 1024 {
                 let text = format!("{} uses a {bits}-bit DH group", k.version);
                 return vuln(id, name, VulnStatus::Vulnerable, text, "dh.weak");
             }
-            let known = prime.and_then(testls_data::known_dh_prime);
+            let known = d.prime.as_deref().and_then(testls_data::known_dh_prime);
             if let Some(p) = known.filter(|p| !p.ffdhe && bits <= 1024) {
                 let text = format!(
                     "{} uses the well-known {} ({})",
@@ -667,7 +657,7 @@ pub fn vulnerability_findings(vulnerabilities: &[Vulnerability]) -> Vec<Finding>
 mod tests {
     //! Unit tests for the vulnerability assessment.
 
-    use testls_probe::CipherOrder;
+    use testls_probe::{CipherOrder, DhSuiteResult};
 
     use super::*;
 
@@ -753,9 +743,17 @@ mod tests {
             groups: vec![0x001d],
             group_order: CipherOrder::Server,
             dh_bits: prime.as_ref().map(|p| p.len() * 8),
-            dh_prime: prime,
             dh_key_reused: reused,
-            dh_suites: Vec::new(),
+            // TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
+            dh_suites: prime
+                .map(|p| DhSuiteResult {
+                    suite: 0x009e,
+                    bits: Some(p.len() * 8),
+                    prime: Some(p),
+                    key_reused: reused,
+                })
+                .into_iter()
+                .collect(),
         }
     }
 
@@ -963,7 +961,6 @@ mod tests {
     /// a negative Logjam or Raccoon verdict.
     #[test]
     fn mixed_dh_evidence() {
-        use testls_probe::DhSuiteResult;
         let version = ProtocolVersion::TLS12;
         let p = protocols(&[version]);
         let c = [ciphers(version, &[0x0033, 0x0034, 0x003a])];
