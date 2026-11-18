@@ -40,10 +40,12 @@ line whose name contains it. A filter that matched no test (typo, renamed
 test) is `FAIL` even with `exit=0`; name it. If the exit is non-zero and
 `grep` shows no failing test, it is a build or setup error: report
 `tail -40 "$log"`. For a failing test, report its complete failure section
-(from the first `---- NAME stdout ----` to the end) from the log:
+(from the first `---- NAME stdout ----` to the end) from the log, or
+`tail -40 "$log"` if there is no such section:
 
 ```sh
-sed -n '/^---- .* stdout ----$/,$p' "$log"
+section=$(sed -n '/^---- .* stdout ----$/,$p' "$log")
+if [ -n "$section" ]; then printf '%s\n' "$section"; else tail -40 "$log"; fi
 ```
 
 If OCSP fixtures are missing, report `BLOCKED` with the error. Don't run
