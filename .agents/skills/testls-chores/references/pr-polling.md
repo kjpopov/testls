@@ -28,8 +28,11 @@ Latest non-comment review and whether it covers the head commit:
 ```sh
 gh api --paginate --slurp repos/OWNER/REPO/pulls/N/reviews | jq -r '[.[][]
   | select(.user.login == "coderabbitai[bot]" and .state != "COMMENTED")]
-  | last | .state + " " + .commit_id'
+  | last | .state + " " + .commit_id + " " + .submitted_at'
 ```
+
+`submitted_at` is the last completed review, the fallback anchor for rate
+limits.
 
 Unresolved threads, all pages:
 
@@ -46,19 +49,30 @@ gh api graphql --paginate -f query='query($endCursor: String) {
 Copy each unresolved comment's id, path, line and the "Prompt for AI Agents"
 section verbatim.
 
-Review bodies hold outside-diff and nitpick items, which have no thread.
-Read every CodeRabbit review body, including `COMMENTED` ones:
+Review bodies hold outside-diff and nitpick items, which have no thread,
+and maintainer requests. Read every review body from every author,
+including `COMMENTED` ones:
 
 ```sh
 gh api --paginate --slurp repos/OWNER/REPO/pulls/N/reviews | jq -r '.[][]
-  | select(.user.login == "coderabbitai[bot]")
-  | "=== " + .state + " " + .commit_id + "\n" + .body'
+  | select(.body != "")
+  | "=== " + .user.login + " " + .state + " " + .commit_id + "\n" + .body'
 ```
 
-Done when: verdict `APPROVED` on the head, no unresolved threads, merge
-state `CLEAN`. Run the snapshot's `gh pr view` again after collecting the
-verdict and threads; if `headRefOid` changed, repeat everything for the new
-head. Only then report `result: PASS`; the caller merges.
+Report every non-CodeRabbit review body verbatim as an open item; only the
+caller decides whether it is settled.
+
+Done when merge state is `CLEAN`, no unresolved threads, no open
+non-CodeRabbit review items, and either:
+
+- verdict `APPROVED` on the head, or
+- CodeRabbit withheld approval ("Automatic approval withheld", merge risk)
+  but its latest review on the head has no actionable comments and its
+  check completed. Report this as `PASS` with the withheld reason quoted.
+
+Run the snapshot's `gh pr view` again after collecting the verdict and
+threads; if `headRefOid` changed, repeat everything for the new head. Only
+then report `result: PASS`; the caller merges.
 
 ## Rate limits
 
@@ -66,12 +80,14 @@ Post `@coderabbitai review` only when the caller explicitly asked for it;
 otherwise report the limit and stop.
 
 CodeRabbit's free plan allows few reviews per hour. Before posting, read its
-newest issue comments across all pages:
+limit messages across all pages, newest last:
 
 ```sh
 gh api --paginate --slurp repos/OWNER/REPO/issues/N/comments | jq -r '[.[][]
-  | select(.user.login == "coderabbitai[bot]")] | sort_by(.updated_at)
-  | .[-3:][] | .updated_at + " " + (.body[:300])'
+  | select(.user.login == "coderabbitai[bot]")
+  | select(.body | test("rate limited|Review limit reached"; "i"))]
+  | sort_by(.updated_at) | .[] | "=== " + .updated_at + "\n"
+  + ([.body | split("\n")[] | select(test("limit|available in|minute"; "i"))] | join("\n"))'
 ```
 
 - If one says "rate limited" or "Review limit reached" with "available in M
