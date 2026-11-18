@@ -66,8 +66,9 @@ gh api --paginate --slurp repos/OWNER/REPO/pulls/N/reviews | jq -r '.[][]
 ```
 
 Report verbatim as open items every non-CodeRabbit review body and every
-outside-diff or nitpick item in CodeRabbit bodies on the head, even in an
-`APPROVED` review; only the caller decides whether they are settled.
+outside-diff or nitpick item in CodeRabbit bodies on any commit, even in an
+`APPROVED` review; a later head does not settle them. They stay open until
+the caller says they are settled.
 
 Done when merge state is `CLEAN`, every check from the `--json` command in
 [Waiting](#waiting) has finished in `pass` or `skipping`, no unresolved
@@ -99,8 +100,9 @@ gh api --paginate --slurp repos/OWNER/REPO/issues/N/comments | jq -r '[.[][]
 ```
 
 - If one says "rate limited", "Review limit reached" or "review limit is
-  currently reached" with "available in M minutes", wait until its `updated_at` + M + 2 minutes. CodeRabbit edits
-  the same comment, so `updated_at` is the anchor, not `created_at`.
+  currently reached" with "available in M minutes", wait until its
+  `updated_at` + M + 2 minutes. CodeRabbit edits the same comment, so
+  `updated_at` is the anchor, not `created_at`.
 - Without a stated time, wait until one hour after the last completed review.
   If that command prints `null` (no completed review), report `BLOCKED`
   with the limit message; don't guess a time.
@@ -120,9 +122,9 @@ the tool caps timeouts lower, use the largest allowed wait.
 - CI: `gh pr checks N --watch --interval 60` blocks until every check
   finishes (add `--fail-fast` to stop on the first failure). Its exit
   status is not a verdict; read the result with
-  `gh pr checks N --json name,bucket --jq '.[] | select(.bucket != "pass" and .bucket != "skipping")'`.
+  `gh pr checks N --json name,bucket --jq '.[] | select(.bucket != "pass" and (.bucket != "skipping" or .name == "CodeRabbit"))'`.
   A `CodeRabbit` check of `skipping` means no review ran (usually rate
-  limited).
+  limited); report it.
 - CodeRabbit window (only if the caller asked for a review): one
   `sleep SECONDS` until the computed time, then re-read comments and post.
 - CodeRabbit review after posting: it takes a few minutes; `sleep 600`, then
