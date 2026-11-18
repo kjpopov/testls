@@ -10,10 +10,11 @@ Start only the services the caller lists (all builds take minutes):
 
 ```sh
 podman compose -f tests/servers/compose.yaml up -d --build SERVICE...
-podman compose -f tests/servers/compose.yaml ps
+podman compose -f tests/servers/compose.yaml ps --all
 ```
 
-Without service names everything starts. Report any service not `Up`, with
+Without service names everything starts. `--all` lists exited containers
+too. Report each requested service that is missing or not `Up`, with
 `podman compose -f tests/servers/compose.yaml logs --tail 30 SERVICE`.
 
 ## Run ignored tests

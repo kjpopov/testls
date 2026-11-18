@@ -65,11 +65,13 @@ gh api --paginate --slurp repos/OWNER/REPO/pulls/N/reviews | jq -r '.[][]
   | "=== " + .user.login + " " + .state + " " + .commit_id + "\n" + .body'
 ```
 
-Report every non-CodeRabbit review body verbatim as an open item; only the
-caller decides whether it is settled.
+Report verbatim as open items every non-CodeRabbit review body and every
+outside-diff or nitpick item in CodeRabbit bodies on the head, even in an
+`APPROVED` review; only the caller decides whether they are settled.
 
-Done when merge state is `CLEAN`, no unresolved threads, no open
-non-CodeRabbit review items, and either:
+Done when merge state is `CLEAN`, every check from the `--json` command in
+[Waiting](#waiting) has finished in `pass` or `skipping`, no unresolved
+threads, no open review-body items, and either:
 
 - verdict `APPROVED` on the head, or
 - CodeRabbit withheld approval ("Automatic approval withheld", merge risk)
@@ -91,15 +93,17 @@ limit messages across all pages, newest last:
 ```sh
 gh api --paginate --slurp repos/OWNER/REPO/issues/N/comments | jq -r '[.[][]
   | select(.user.login == "coderabbitai[bot]")
-  | select(.body | test("rate limited|Review limit reached"; "i"))]
+  | select(.body | test("rate limited|review limit (is currently )?reached"; "i"))]
   | sort_by(.updated_at) | .[] | "=== " + .updated_at + "\n"
   + ([.body | split("\n")[] | select(test("limit|available in|minute"; "i"))] | join("\n"))'
 ```
 
-- If one says "rate limited" or "Review limit reached" with "available in M
-  minutes", wait until its `updated_at` + M + 2 minutes. CodeRabbit edits
+- If one says "rate limited", "Review limit reached" or "review limit is
+  currently reached" with "available in M minutes", wait until its `updated_at` + M + 2 minutes. CodeRabbit edits
   the same comment, so `updated_at` is the anchor, not `created_at`.
 - Without a stated time, wait until one hour after the last completed review.
+  If that command prints `null` (no completed review), report `BLOCKED`
+  with the limit message; don't guess a time.
 - The estimate is not reliable. Right before posting, read the comments
   again; if the newest one now names a later time, wait for that instead.
   Never post while limited.
