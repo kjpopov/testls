@@ -28,11 +28,17 @@ Latest non-comment review and whether it covers the head commit:
 ```sh
 gh api --paginate --slurp repos/OWNER/REPO/pulls/N/reviews | jq -r '[.[][]
   | select(.user.login == "coderabbitai[bot]" and .state != "COMMENTED")]
-  | last | .state + " " + .commit_id + " " + .submitted_at'
+  | last | .state + " " + .commit_id'
 ```
 
-`submitted_at` is the last completed review, the fallback anchor for rate
-limits.
+Last completed CodeRabbit review of any state, the fallback anchor for
+rate limits:
+
+```sh
+gh api --paginate --slurp repos/OWNER/REPO/pulls/N/reviews | jq -r '[.[][]
+  | select(.user.login == "coderabbitai[bot]")] | sort_by(.submitted_at)
+  | last | .submitted_at'
+```
 
 Unresolved threads, all pages:
 
