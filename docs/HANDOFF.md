@@ -4,22 +4,6 @@ State left by the last agent session for the next one. Read this right
 after [AGENTS.md](../AGENTS.md) (then [agent-workflow.md](agent-workflow.md)
 if `gh` is allowed); update it when a session ends.
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:83833dce0e5475648f946dd94951e70392b3b5255a5304195850dd30790836ea -->
-
-## DH suite coverage (#162)
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:a2af9667853288bada9fd15f7d9fc2b6541741d4fed9243ad911797eeab5d6bc -->
-
-Per-suite DH measurements for #162 retain failed and unsupported suites, evaluate all measured primes, and compare reuse only within a suite with matching parameters. JSON schema 2 changes `dh_bits` to the smallest measurement and adds suite evidence; schema 1 baselines are rejected. The legacy fixture reports the 1024-bit anonymous group. See the task validation record for checks.
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 -->
-
 ## State (2026-11-10)
 
 - Latest release **v0.6.0** (web service: `testls serve`, REST/SSE,
@@ -307,10 +291,13 @@ Per-suite DH measurements for #162 retain failed and unsupported suites, evaluat
   oracle is inconclusive; decision #104. wolfSSL 3.12.2 now reports `vuln.robot`,
   3.13.0 stays not tested; OpenSSL 1.0.1f/g (Heartbleed/CCS) and MariaDB keep
   their previous verdicts. fmt, clippy, probe/scan unit tests, 35 audit tests
-  and local integration pass. Awaiting CodeRabbit/CI before merge.
+  and local integration pass. Merged.
+- DH per-suite coverage (#162, PR #181): `probe_key_exchange` samples each
+  accepted DH suite (`KeyExchangeResult::dh_suites`, `dh_prime` removed);
+  Logjam/Raccoon/policy read all samples; JSON schema 2; decision #106.
 
-Next free decision: #105 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
-#103 ROBOT fixtures, #104 ROBOT flow oracle). Recheck fresh `main` before assigning
+Next free decision: #107 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
+#103 ROBOT fixtures, #104 ROBOT flow oracle, #105 fixture DNS, #106 DH suites). Recheck fresh `main` before assigning
 a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,

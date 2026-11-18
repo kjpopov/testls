@@ -55,7 +55,6 @@ class AdapterTests(unittest.TestCase):
         data["schema_version"] = 2
         self.assertEqual(AUDIT.testls_result(data), old)
 
-
     def test_agreement_does_not_make_not_tested_safe(self):
         """Allow patched no-positive controls while retaining inconclusive vulnerability notes."""
         row = AUDIT.compare(fixture(), AUDIT.testls_result(sample_testls()),

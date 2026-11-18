@@ -219,30 +219,14 @@ Not scheduled; pulled into a milestone when someone picks it up.
 - [x] ROBOT flow oracle: detect an early close on invalid padding versus
   waiting for Finished on a valid block, and report the evidence type
   ([#175](https://github.com/kjpopov/testls/issues/175)).
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:02b53f6fe8bb77ae24351ea5c4db3f42ac2a4c6b1a8d540d63c978a4693717b1 -->
-
 - [x] DH measurement coverage: probe accepted finite-field DH suites separately,
   preserve weaker parameters and incomplete coverage, and avoid a negative
   Logjam verdict based on one sampled suite (local legacy reproduction,
   [#162](https://github.com/kjpopov/testls/issues/162)).
-
-<!-- /coderabbit-ai-generated:v1 -->
 - [x] Local fixture reliability: avoid historical TLS/SMTP stalls when peer
   reverse DNS is unavailable, without hard-coded VM addresses or global DNS
   changes (decision #105,
   [#163](https://github.com/kjpopov/testls/issues/163)).
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:e97a3e19ca1ad7d3cf6772d32f8070192c7b0e3deb8181ce857b8200e17f2c7d -->
-
-## DH suite measurement decision (#106)
-
-Probe each accepted non-PSK DHE and anonymous DH suite separately, with at most two connections per suite and matching version and suite. Preserve all prime samples and mark failed and DHE-PSK measurements incomplete. Reuse requires matching prime and generator in the same suite. Logjam and policy inspect all samples; the weakest size drives the DH finding. JSON schema 2 makes `dh_bits` the minimum and adds suite evidence, so schema 1 baselines must be regenerated. This amends decisions #27, #36 and #62; the server may still select other groups for the same suite.
-
-<!-- /coderabbit-ai-generated:v1 -->
 
 ## Open questions
 
@@ -357,3 +341,4 @@ None at the moment (default profile and politeness settled in #88, #89).
 | 103 | ROBOT fixtures use wolfSSL 3.12.2 (CVE-2017-13099) and 3.13.0 (fixed), built from checksum-pinned upstream tags. 3.12.2 closes right after an invalid ClientKeyExchange and waits for Finished after a valid one; it sends no differing fatal alert. The fatal-alert rule of #101 stays; both fixtures assert ROBOT not tested and no `vuln.robot`. A flow oracle is tracked separately (#175) | The issue required confirming the real oracle before asserting a positive; weakening the rule to force one would risk false positives, and not tested is the honest verdict |
 | 104 | The ROBOT probe also sends the `ClientKeyExchange` alone and records whether the server answers (any alert, or an early close) or keeps waiting for the client's Finished. A high `vuln.robot` needs the valid block to wait and a malformed block to answer, reproducibly over two interleaved rounds, for the same certificate and client-authentication policy. The alert oracle of #101 runs first and its evidence is named separately. Bounds: one static RSA suite per TLS 1.0–1.2 version, two rounds, a 2 s flow deadline. Amends #103; the wolfSSL 3.12.2 fixture now reports vulnerable | Servers such as wolfSSL 3.12.2 leak padding validity only by closing early, so the fatal-alert rule of #101 missed a real oracle (#175). The waiting valid block is the control that keeps a fast close from being mistaken for evidence, and requiring both rounds to agree bounds false positives |
 | 105 | Fixtures resolve names through a pinned CoreDNS service on a fixed compose network (`10.253.53.0/24`, static addresses). `fixtures.test` and its reverse zone hold A/PTR records for every fixture and the gateway; other IPv4 clients get a generated `ip-a-b-c-d.peer.fixtures.test` PTR with a matching A record; other names are refused. Local runs and CI use the same compose file | Fixtures like OpenSSL `s_server` (no option to skip the lookup) and Postfix behave as on a real network with working forward and reverse DNS, instead of per-image resolver changes or disabled lookups. No host DNS, `/etc/hosts` or VM-specific addresses; the generated peer records cover runtime port forwarders whose source address varies |
+| 106 | Probe each accepted DHE and anonymous DH suite at TLS 1.0–1.2 separately, two handshakes per suite, and keep the weaker prime if they differ. Reuse counts only for identical parameters. DHE-PSK and failed measurements stay unmeasured and make Logjam, Raccoon and the key exchange policy check not tested. JSON schema 2: `dh_bits` is the minimum over `dh_suites` | A server can pick a different group per suite (#162: 1024-bit anonymous DH hidden behind a 2048-bit DHE suite); one sample cannot prove a negative. Amends #27, #36 and #62 |
