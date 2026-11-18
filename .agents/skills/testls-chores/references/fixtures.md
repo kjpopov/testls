@@ -25,6 +25,7 @@ Pass the caller's name filters (substring match, several allowed):
 Use a log of your own; other agents may run tests in the same checkout:
 
 ```sh
+mkdir -p target
 log=target/servers-test-$$.log
 cargo test -p testls --test servers -- --ignored FILTER... > "$log" 2>&1
 echo "exit=$? log=$log"
@@ -41,8 +42,9 @@ test) is `FAIL` even with `exit=0`; name it. If the exit is non-zero and
 `tail -40 "$log"`. For a failing test, report its `panicked at` line plus
 the assertion message from the log.
 
-If OCSP fixtures are missing, run `scripts/gen-ocsp-fixtures.sh` once, then
-retry.
+If OCSP fixtures are missing, report `BLOCKED` with the error. Don't run
+`scripts/gen-ocsp-fixtures.sh` unless the caller says so: it rewrites every
+fixture under `crates/testls-checks/src/testdata`.
 
 ## Stop
 

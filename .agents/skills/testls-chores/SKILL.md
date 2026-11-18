@@ -29,8 +29,9 @@ you run commands and report what happened.
 
 - Start, check or stop fixture servers, or run ignored integration tests:
   first read [Fixtures and integration tests](./references/fixtures.md).
-- Watch CI, trigger or wait for CodeRabbit, collect review findings:
-  first read [PR polling](./references/pr-polling.md).
+- Watch CI, trigger or wait for CodeRabbit, collect review findings: needs
+  the caller to confirm the maintainer allowed `gh` this session, else
+  report `BLOCKED`. Then first read [PR polling](./references/pr-polling.md).
 
 ## Report format
 

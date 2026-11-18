@@ -47,13 +47,14 @@ gh api graphql --paginate -f query='query($endCursor: String) {
   repository(owner: "OWNER", name: "REPO") { pullRequest(number: N) {
     reviewThreads(first: 50, after: $endCursor) {
       pageInfo { hasNextPage endCursor }
-      nodes { isResolved comments(first: 1) { nodes { databaseId path line body } } }
+      nodes { isResolved comments(first: 100) { totalCount nodes { databaseId path line author { login } body } } }
     } } } }' \
-  --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved|not) | .comments.nodes[0]'
+  --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved|not) | .comments'
 ```
 
-Copy each unresolved comment's id, path, line and the "Prompt for AI Agents"
-section verbatim.
+For each unresolved thread copy the first comment's id, path, line and
+"Prompt for AI Agents" section, plus every reply verbatim with its author.
+If `totalCount` exceeds 100, say so in the report.
 
 Review bodies hold outside-diff and nitpick items, which have no thread,
 and maintainer requests. Read every review body from every author,
@@ -76,8 +77,9 @@ threads, no open review-body items, and either:
 
 - verdict `APPROVED` on the head, or
 - CodeRabbit withheld approval ("Automatic approval withheld", merge risk)
-  but its latest review on the head has no actionable comments and its
-  check completed. Report this as `PASS` with the withheld reason quoted.
+  but its latest review on the head has no actionable comments and the
+  `CodeRabbit` check shows `Review completed` (not skipped). Report this
+  as `PASS` with the withheld reason quoted.
 
 Run the snapshot's `gh pr view` again after collecting the verdict and
 threads; if `headRefOid` changed, repeat everything for the new head. Only
