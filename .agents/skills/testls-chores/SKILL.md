@@ -40,7 +40,7 @@ branch: <name> @ <short sha>
 ran: <command>
 result: PASS | FAIL | WAITING | BLOCKED
 details:
-  <verbatim lines that matter, max ~30>
+  <verbatim lines that matter; failures and review bodies in full>
 ```
 
 One block per command group. No advice unless asked.

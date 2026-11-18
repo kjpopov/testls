@@ -40,7 +40,11 @@ line whose name contains it. A filter that matched no test (typo, renamed
 test) is `FAIL` even with `exit=0`; name it. If the exit is non-zero and
 `grep` shows no failing test, it is a build or setup error: report
 `tail -40 "$log"`. For a failing test, report its `panicked at` line plus
-the assertion message from the log.
+the assertion message from the log:
+
+```sh
+grep -nE -A15 "panicked at" "$log"
+```
 
 If OCSP fixtures are missing, report `BLOCKED` with the error. Don't run
 `scripts/gen-ocsp-fixtures.sh` unless the caller says so: it rewrites every

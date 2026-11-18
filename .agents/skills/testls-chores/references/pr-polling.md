@@ -14,12 +14,12 @@ gh pr checks N
 Report failing or pending checks by name. For a failing job:
 
 ```sh
-gh run view RUN_ID --json jobs --jq '.jobs[] | select(.conclusion=="failure") | .name + " " + .url'
+gh run view RUN_ID --json jobs --jq '.jobs[] | select(.conclusion=="failure") | "\(.databaseId) \(.name)"'
 gh run view --job JOB_ID --log-failed | grep -nE "error|panicked|FAILED|failed" | head -40
 ```
 
-Run the second command once per failed job (`JOB_ID` is the number at the
-end of the job URL). If it prints nothing, report that job's
+Run the second command once per failed job (`JOB_ID` is the `databaseId`
+printed first). If it prints nothing, report that job's
 `--log-failed | tail -40` instead.
 
 A job cancelled at its time limit with no test failure is likely infra;
@@ -129,9 +129,9 @@ the tool caps timeouts lower, use the largest allowed wait.
 - CI: `gh pr checks N --watch --interval 60` blocks until every check
   finishes (add `--fail-fast` to stop on the first failure). Its exit
   status is not a verdict; read the result with
-  `gh pr checks N --json name,state,bucket,description,link --jq '.[] | select(.bucket != "pass" and (.bucket != "skipping" or .name == "CodeRabbit"))'`.
-  Report a skipped `CodeRabbit` check with its raw `state` and
-  `description` verbatim; don't infer the cause. A rate limit is confirmed
+  `gh pr checks N --json name,state,bucket,description,link --jq '.[] | select(.name == "CodeRabbit" or (.bucket != "pass" and .bucket != "skipping"))'`.
+  `CodeRabbit` is always listed. Report a skipped `CodeRabbit` check with
+  its raw `state` and `description` verbatim; don't infer the cause. A rate limit is confirmed
   only by a limit comment (see [Rate limits](#rate-limits)).
 - CodeRabbit window (only if the caller asked for a review): one
   `sleep SECONDS` until the computed time, then re-read comments and post.
