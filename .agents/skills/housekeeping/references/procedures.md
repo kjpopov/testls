@@ -94,7 +94,8 @@ delete no local branch while any is busy. Never delete local `main`, even
 though it is listed as merged. Only when all checks pass:
 
 ```sh
-git update-ref -d refs/heads/BRANCH "$oid"   # fails if BRANCH moved: recheck
+git worktree list --porcelain | grep -qx 'branch refs/heads/BRANCH' \
+  || git update-ref -d refs/heads/BRANCH "$oid"   # fails if BRANCH moved: recheck
 ```
 
 ## Worktrees
