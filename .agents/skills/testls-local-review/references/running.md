@@ -13,6 +13,9 @@ git fetch -q origin main
 base=$(git merge-base origin/main HEAD)
 ```
 
+Fetch first: a stale `origin/main` puts already-merged commits into the
+diff and the review comments on them.
+
 If usage shows no reviews left, report `BLOCKED` with the reset time; don't
 pass `--use-credits` unless the maintainer said so.
 
@@ -24,21 +27,28 @@ so it doesn't show up as untracked:
 
 ```sh
 out=$(mktemp "${TMPDIR:-/tmp}/testls-review.XXXXXX")
-coderabbit review --agent --committed --base-commit "$base" > "$out" 2>&1
-echo "exit=$?"
+coderabbit review --agent --gate major --committed --base-commit "$base" > "$out" 2>&1
+echo "exit=$? out=$out"
 ```
 
-The output is NDJSON after a plain-text `Tip:` line. Event types:
-`review_context`, `heartbeat` (liveness only), `finding`, `complete`.
+`--gate major` reviews the whole diff fresh and sets the exit code:
+`0` = no major or critical finding, `2` = at least one, `1` = the review
+failed or is incomplete (findings so far are not the full picture).
 
-Check the run finished:
+The output is NDJSON after a plain-text `Tip:` line. Event types include
+`review_context`, `status`, `heartbeat` (liveness only), `finding`,
+`error`, `complete`. Check the run finished:
 
 ```sh
-grep '"type":"complete"' "$out" | jq -c '{status, findings, message}'
+grep -E '"type":"(complete|error)"' "$out" | jq -c 'del(.reviewedFiles)'
 ```
 
-Anything but `"status":"review_completed"` (or no `complete` line) means no
-review happened: report it verbatim, don't call the branch clean.
+The run counts only with exit 0 or 2 and a `complete` event with
+`"status":"review_completed"`, `outcome` not `failed`, no positive
+`unreviewedFileCount`, and no `reused: true`. `"status":"review_skipped"`
+means the scope had no changes: check `$base`. Anything else: report it
+verbatim, don't call the branch clean. Format: the
+[agent mode docs](https://docs.coderabbit.ai/cli/agent-mode).
 
 ## Findings
 
@@ -60,5 +70,4 @@ new run.
 ## Second run
 
 Only after fixing a critical or major finding. Commit the fix, then repeat
-"Review" with the same `$base`. The CLI reuses its last checkpoint; add
-`--fresh` only if it reports nothing changed although you committed fixes.
+"Review" with the same `$base`.

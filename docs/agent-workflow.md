@@ -16,9 +16,8 @@ otherwise push branches and stop (see [AGENTS.md](../AGENTS.md)).
    "Before you push", plus integration tests for scanner changes, and a
    local CodeRabbit review if the CLI is set up
    ([testls-local-review](../.agents/skills/testls-local-review/SKILL.md)).
-   Recheck the
-   last PLAN decision number; if another PR took yours, renumber to the next
-   free one (and fix references) before merging.
+   Recheck the last PLAN decision number; if another PR took yours,
+   renumber to the next free one (and fix references) before merging.
 5. `git push -u origin BRANCH`, then
    `gh pr create --base main --title "area: subject" --body "..."`.
 6. Wait for CI and CodeRabbit (5-10 min), fix comments, repeat. One review
