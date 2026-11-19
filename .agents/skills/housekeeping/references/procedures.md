@@ -16,9 +16,9 @@ git for-each-ref --merged=refs/remotes/origin/main \
 This lists branch names under `origin` and excludes the target branch. Never
 delete the target or a remote's default branch, even if it appears merged.
 
-First check that `git remote get-url origin` and
-`git remote get-url --push origin` name the same repository; if not (fork
-and upstream), report it and stop.
+First check that `git remote get-url origin` and every URL from
+`git remote get-url --push --all origin` name the same repository; if not
+(fork and upstream, or several push targets), report it and stop.
 
 Capture each tip once, verify that exact object, and lease it, so a later
 fetch cannot swap in an unchecked tip:
