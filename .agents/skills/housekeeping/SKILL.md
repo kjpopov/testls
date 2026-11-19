@@ -15,13 +15,14 @@ to committed history.
   [Procedures](./references/procedures.md)). "Looks old" is not a reason.
 - Squash-merged branches are NOT detected by `git branch --merged`. Confirm
   the content landed on the target before deleting.
-- Stashes, uncommitted work, and branches with unique commits are kept and
-  reported, not deleted, unless the user explicitly named them.
+- Stashes, uncommitted or ignored work, and branches with unverified unique
+  content are kept and reported, not deleted, unless the user explicitly
+  named them. Never delete `main`.
 - Delete remote refs in batches but expect partial failure: already-gone
   refs abort the whole batch. Retry with the surviving refs only.
 - Push URLs may differ from fetch URLs (e.g. SSH vs HTTPS). If one fails
   with an auth error, retry over the other URL once, inline, without
-  changing any git config.
+  changing any git config, and only if both name the same repository.
 - End with a report: what was deleted, what was kept and why, plus final
   state (`git branch -a`, `git worktree list`, `git stash list`).
 
@@ -29,7 +30,7 @@ to committed history.
 
 1. Orient: `git rev-parse --show-toplevel`, `git branch --show-current`,
    `git remote -v`, `git worktree list`, `git stash list`.
-2. `git fetch --prune` before listing merged branches.
+2. `git fetch --prune origin` before listing merged branches.
 3. Enumerate candidates, check each, delete the safe ones.
 4. Report.
 

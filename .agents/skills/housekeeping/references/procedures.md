@@ -5,7 +5,7 @@ delete of a remote branch is recoverable but still costly.
 
 ## Merged remote branches
 
-List after `git fetch --prune`:
+List after `git fetch --prune origin`:
 
 ```sh
 git for-each-ref --merged=refs/remotes/origin/main \
@@ -16,12 +16,17 @@ git for-each-ref --merged=refs/remotes/origin/main \
 This lists branch names under `origin` and excludes the target branch. Never
 delete the target or a remote's default branch, even if it appears merged.
 
-Delete in one batch:
+Record each checked tip (`git rev-parse origin/BR`) and delete in one batch,
+leasing every ref so a branch updated since the check is not deleted:
 
 ```sh
-git push <fetch-url> --delete BR1 BR2 ...
-git fetch --prune
+git push <fetch-url> --force-with-lease=refs/heads/BR1:<oid1> \
+  --force-with-lease=refs/heads/BR2:<oid2> --delete BR1 BR2 ...
+git fetch --prune origin
 ```
+
+A `stale info` rejection means the branch moved: recheck it before
+retrying.
 
 Traps:
 
@@ -34,7 +39,9 @@ Traps:
   modifications, deletions, renames and binary files, and compare every
   change with the target and any later changes. A keyword match or a note
   alone does not establish that all branch work landed. If that cannot be
-  verified, keep the branch and report it. For example:
+  verified, keep the branch and report it. An empty diff with commits in
+  `git log origin/main..BR` (for example a change and its revert) is not
+  proof either: keep and report. For example:
 
   ```sh
   git diff --stat "$(git merge-base origin/main BR)" BR
@@ -50,21 +57,24 @@ After remote cleanup, delete local branches that are merged into `main`
 or whose remote counterpart is gone:
 
 ```sh
-git branch --merged main
+git branch --merged main | grep -vE '^[*+]? *main$'
 git branch -D BRANCH          # only after the unique-content check above
 ```
+
+Never delete local `main`, even though it is listed as merged.
 
 ## Worktrees
 
 ```sh
-git -C <worktree-dir> status --short   # clean?
+git -C <worktree-dir> status --short --ignored   # clean?
 git worktree remove <worktree-dir>     # add --force only after user confirms
 git worktree prune
 ```
 
 Worktrees in temp directories (agent scratch space) on merged or detached
-branches are the usual stale ones. A worktree with uncommitted changes is
-reported, not removed.
+branches are the usual stale ones. `git worktree remove` deletes ignored
+files too: a worktree with uncommitted or ignored files (other than build
+output such as `target/`) is reported, not removed.
 
 ## Stashes
 
@@ -92,7 +102,9 @@ when the user did not ask for "clean all".
 git fetch origin main:main   # fast-forward local main; fails if diverged
 ```
 
-If it fails, report the divergence instead of forcing.
+This refuses to update `main` while it is checked out; then run
+`git -C <that-worktree> merge --ff-only origin/main` there if it is clean.
+If either fails, report it instead of forcing.
 
 ## Object hygiene
 
@@ -104,5 +116,6 @@ recoverable commits or other work.
 
 If `git push` to the push URL fails with `Permission denied (publickey)`
 or similar, check the agent (`ssh-add -l`) once, then retry the same push
-against the fetch URL inline (e.g. `git push https://... --delete ...`).
+against the fetch URL inline (e.g. `git push https://... --delete ...`),
+but only if both URLs name the same repository (not a fork and upstream).
 Do not edit `git config` or add keys; report the auth mismatch instead.
