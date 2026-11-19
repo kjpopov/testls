@@ -86,10 +86,11 @@ git worktree prune
 
 Worktrees in temp directories (agent scratch space) on merged or detached
 branches are the usual stale ones. For a detached worktree, keep and report
-it unless another ref holds its HEAD:
+it unless a branch that stays after cleanup holds its HEAD:
 
 ```sh
-git branch -a --contains "$(git -C <worktree-dir> rev-parse HEAD)"   # empty: keep
+oid=$(git -C <worktree-dir> rev-parse HEAD)
+git for-each-ref --contains="$oid" refs/heads/ refs/remotes/   # empty: keep
 ```
  `git worktree remove` deletes ignored
 files too: a worktree with uncommitted or ignored files (other than build
