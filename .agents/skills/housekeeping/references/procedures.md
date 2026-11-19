@@ -16,11 +16,23 @@ git for-each-ref --merged=refs/remotes/origin/main \
 This lists branch names under `origin` and excludes the target branch. Never
 delete the target or a remote's default branch, even if it appears merged.
 
-Record each checked tip (`git rev-parse origin/BR`) and delete in one batch,
-leasing every ref so a branch updated since the check is not deleted:
+First check that `git remote get-url origin` and
+`git remote get-url --push origin` name the same repository; if not (fork
+and upstream), report it and stop.
+
+Capture each tip once, verify that exact object, and lease it, so a later
+fetch cannot swap in an unchecked tip:
 
 ```sh
-git push origin --force-with-lease=refs/heads/BR1:<oid1> \
+oid=$(git rev-parse origin/BR)
+git merge-base --is-ancestor "$oid" origin/main && echo "BR $oid merged"
+```
+
+Delete in one atomic batch, leasing every ref so a branch updated since the
+check is not deleted:
+
+```sh
+git push --atomic origin --force-with-lease=refs/heads/BR1:<oid1> \
   --force-with-lease=refs/heads/BR2:<oid2> --delete BR1 BR2 ...
 git fetch --prune origin
 ```
@@ -30,10 +42,11 @@ retrying.
 
 Traps:
 
-- **Partial batch failure.** If any ref no longer exists remotely, git
-  prints `remote ref does not exist` for it and fails the whole push — the
-  other deletions in that push did not happen. Drop the refs it reports
-  from the original list and push the rest again.
+- **Partial batch failure.** With `--atomic`, any rejected ref (for
+  example `remote ref does not exist` or `stale info`) fails the whole
+  push. Run `git fetch --prune origin`, drop the refs that are gone or
+  moved, and push the verified survivors again. Without `--atomic`, read
+  each ref's result line before retrying.
 - **Squash-merge blindness.** `--merged` misses squash-merged branches.
   Inspect the complete branch diff from its merge base, including additions,
   modifications, deletions, renames and binary files, and compare every
@@ -72,7 +85,13 @@ git worktree prune
 ```
 
 Worktrees in temp directories (agent scratch space) on merged or detached
-branches are the usual stale ones. `git worktree remove` deletes ignored
+branches are the usual stale ones. For a detached worktree, keep and report
+it unless another ref holds its HEAD:
+
+```sh
+git branch -a --contains "$(git -C <worktree-dir> rev-parse HEAD)"   # empty: keep
+```
+ `git worktree remove` deletes ignored
 files too: a worktree with uncommitted or ignored files (other than build
 output such as `target/`) is reported, not removed.
 

@@ -18,8 +18,8 @@ to committed history.
 - Stashes, uncommitted or ignored work, and branches with unverified unique
   content are kept and reported, not deleted, unless the user explicitly
   named them. Never delete `main`.
-- Delete remote refs in batches but expect partial failure: already-gone
-  refs abort the whole batch. Retry with the surviving refs only.
+- Delete remote refs in one `--atomic` batch: any rejected ref aborts it.
+  Refresh, then retry with verified survivors only.
 - Push URLs may differ from fetch URLs (e.g. SSH vs HTTPS). If one fails
   with an auth error, retry over the other URL once, inline, without
   changing any git config, and only if both name the same repository.
