@@ -24,11 +24,16 @@ Capture each tip once, verify that exact object, and lease it, so a later
 fetch cannot swap in an unchecked tip:
 
 ```sh
-oid=$(git rev-parse origin/BR)
-git merge-base --is-ancestor "$oid" origin/main && echo "BR $oid merged"
+oid=$(git rev-parse refs/remotes/origin/BR)
+git merge-base --is-ancestor "$oid" refs/remotes/origin/main && echo "BR $oid merged"
 ```
 
-Delete in one atomic batch, leasing every ref so a branch updated since the
+Leases cover only the deleted refs, not `main`. Run this only if remote
+`main` is protected against force-pushes; if not, report and stop. Right
+before the push, `git fetch --prune origin` again and repeat the ancestry
+check with the captured oids.
+
+Delete in one atomic batch, leasing every ref, so a branch updated since the
 check is not deleted:
 
 ```sh
@@ -53,12 +58,12 @@ Traps:
   change with the target and any later changes. A keyword match or a note
   alone does not establish that all branch work landed. If that cannot be
   verified, keep the branch and report it. An empty diff with commits in
-  `git log origin/main..BR` (for example a change and its revert) is not
-  proof either: keep and report. For example:
+  `git log refs/remotes/origin/main..BR` (for example a change and its
+  revert) is not proof either: keep and report. For example:
 
   ```sh
-  git diff --stat "$(git merge-base origin/main BR)" BR
-  git diff --binary "$(git merge-base origin/main BR)" BR
+  git diff --stat "$(git merge-base refs/remotes/origin/main BR)" BR
+  git diff --binary "$(git merge-base refs/remotes/origin/main BR)" BR
   ```
 
 - **Current branch.** Never delete the branch checked out in any
