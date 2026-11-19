@@ -13,7 +13,10 @@ otherwise push branches and stop (see [AGENTS.md](../AGENTS.md)).
    report/CLI** (docs, `docs/json-schema.md`, `CHANGELOG.md`, PLAN checkbox and
    decision log go into the last PR).
 4. Before pushing: rebase on fresh `main`, then run everything in AGENTS.md
-   "Before you push", plus integration tests for scanner changes. Recheck the
+   "Before you push", plus integration tests for scanner changes, and a
+   local CodeRabbit review if the CLI is set up
+   ([testls-local-review](../.agents/skills/testls-local-review/SKILL.md)).
+   Recheck the
    last PLAN decision number; if another PR took yours, renumber to the next
    free one (and fix references) before merging.
 5. `git push -u origin BRANCH`, then
