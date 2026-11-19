@@ -84,8 +84,10 @@ oid=$(git rev-parse refs/heads/BRANCH)
 Run the ancestry or content check on that captured local tip, not its
 remote counterpart: it may hold commits that were never pushed. Confirm with
 `git worktree list` that no worktree uses the branch (`update-ref` does not
-refuse a checked-out branch). Never delete local `main`, even though it is
-listed as merged. Only when all checks pass:
+refuse a checked-out branch). A rebase or bisect shows a detached HEAD but
+still uses its branch, so run the busy check below on every worktree and
+delete no local branch while any is busy. Never delete local `main`, even
+though it is listed as merged. Only when all checks pass:
 
 ```sh
 git update-ref -d refs/heads/BRANCH "$oid"   # fails if BRANCH moved: recheck
@@ -96,14 +98,18 @@ git update-ref -d refs/heads/BRANCH "$oid"   # fails if BRANCH moved: recheck
 Check before removing; `git worktree remove` deletes ignored files too:
 
 ```sh
-git -C <worktree-dir> status --short --ignored   # only target/ allowed
+git -C <worktree-dir> status --short --ignored --untracked-files=all   # only target/ allowed
+for p in rebase-merge rebase-apply BISECT_LOG MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
+  test -e "$(git -C <worktree-dir> rev-parse --git-path "$p")" && echo "busy: $p"
+done
 oid=$(git -C <worktree-dir> rev-parse HEAD)
 git for-each-ref --contains="$oid" refs/heads/ refs/remotes/   # detached: empty means keep
 ```
 
 Keep and report a worktree with uncommitted or ignored files (other than
-build output such as `target/`), or a detached one whose HEAD no branch that
-stays after cleanup holds. Worktrees in temp directories (agent scratch
+build output such as `target/`), one that is busy (rebase, bisect, merge,
+cherry-pick or revert in progress), or a detached one whose HEAD no branch
+that stays after cleanup holds. Worktrees in temp directories (agent scratch
 space) on merged or detached branches are the usual stale ones. Only when
 the checks pass:
 
