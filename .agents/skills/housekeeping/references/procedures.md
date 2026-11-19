@@ -105,7 +105,7 @@ Check before removing; `git worktree remove` deletes ignored files too:
 git -C <worktree-dir> ls-files -v | grep -E '^([a-z]|S)'   # assume-unchanged/skip-worktree: status hides edits, keep
 git -C <worktree-dir> status --short --ignored --untracked-files=all   # only target/ allowed
 for p in rebase-merge rebase-apply BISECT_LOG MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
-  test -e "$(git -C <worktree-dir> rev-parse --git-path "$p")" && echo "busy: $p"
+  test -e "$(git -C <worktree-dir> rev-parse --path-format=absolute --git-path "$p")" && echo "busy: $p"
 done
 oid=$(git -C <worktree-dir> rev-parse HEAD)
 git for-each-ref --contains="$oid" refs/heads/ refs/remotes/   # detached: empty means keep
@@ -115,9 +115,11 @@ Keep and report a worktree with assume-unchanged or skip-worktree files
 (sparse checkouts included), uncommitted or ignored files (other than
 build output such as `target/`), one that is busy (rebase, bisect, merge,
 cherry-pick or revert in progress), or a detached one whose HEAD no branch
-that stays after cleanup holds. Worktrees in temp directories (agent scratch
-space) on merged or detached branches are the usual stale ones. Only when
-the checks pass:
+that stays after cleanup holds. Worktrees in agent scratch space on merged
+or detached branches are the usual stale ones, but a clean worktree can still
+be in use by another agent or session. Clean checks do not prove it is idle:
+list the candidates and remove only those the user confirms. Only when the
+checks pass and the user confirmed:
 
 ```sh
 git worktree remove <worktree-dir>     # add --force only after user confirms
