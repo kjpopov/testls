@@ -291,10 +291,13 @@ if `gh` is allowed); update it when a session ends.
   oracle is inconclusive; decision #104. wolfSSL 3.12.2 now reports `vuln.robot`,
   3.13.0 stays not tested; OpenSSL 1.0.1f/g (Heartbleed/CCS) and MariaDB keep
   their previous verdicts. fmt, clippy, probe/scan unit tests, 35 audit tests
-  and local integration pass. Awaiting CodeRabbit/CI before merge.
+  and local integration pass. Merged.
+- DH per-suite coverage (#162, PR #181): `probe_key_exchange` samples each
+  accepted DH suite twice (`KeyExchangeResult::dh_suites`, `dh_prime` removed;
+  each keeps all distinct `primes`); Logjam/Raccoon/policy read all samples; JSON schema 2; decision #106.
 
-Next free decision: #105 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
-#103 ROBOT fixtures, #104 ROBOT flow oracle). Recheck fresh `main` before assigning
+Next free decision: #107 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
+#103 ROBOT fixtures, #104 ROBOT flow oracle, #105 fixture DNS, #106 DH suites). Recheck fresh `main` before assigning
 a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,

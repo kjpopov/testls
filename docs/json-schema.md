@@ -2,7 +2,7 @@
 
 `testls --format json` prints one JSON document to stdout when the scan
 finishes. With several targets it prints a JSON array holding one document
-per target, in scan order. This page describes schema version **1**.
+per target, in scan order. This page describes schema version **2**.
 
 ## Stability
 
@@ -25,7 +25,7 @@ per target, in scan order. This page describes schema version **1**.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `schema_version` | integer | Schema version, currently `1` |
+| `schema_version` | integer | Schema version, currently `2` |
 | `tool.name` | string | Always `"testls"` |
 | `tool.version` | string | testls version |
 | `target.input` | string | Target as given on the command line |
@@ -76,8 +76,13 @@ per target, in scan order. This page describes schema version **1**.
 | `groups[].id` | string | Hex code point, e.g. `"0x11ec"` |
 | `groups[].name` | string | IANA name, e.g. `"X25519MLKEM768"` |
 | `groups[].severity` | string | Severity of the group, see [Finding](#finding) |
-| `dh_bits` | integer or null | Size of the ephemeral DH prime offered with DHE suites (TLSv1.2 and older); `null` without DHE |
-| `error` | string | Only when the probe failed; `groups` is then empty |
+| `dh_bits` | integer or null | Smallest DH prime seen in `dh_suites` (TLSv1.2 and older); `null` if none was measured |
+| `dh_suites` | array | One entry per accepted DHE, anonymous DH or DHE-PSK suite |
+| `dh_suites[].suite` | string | Hex code point, e.g. `"0x0034"` |
+| `dh_suites[].bits` | integer or null | Smaller prime size of the two handshakes; `null` if either failed (always for DHE-PSK) |
+| `dh_suites[].primes` | array of strings | Distinct primes seen in the two handshakes as big-endian hex; may be non-empty when `bits` is `null` |
+| `dh_suites[].key_reused` | boolean or null | Same public value in two handshakes with identical parameters; `null` if not comparable |
+| `error` | string | Only when the probe failed; `groups` and `dh_suites` are then empty |
 
 ### Post-quantum readiness
 
@@ -248,7 +253,7 @@ Abbreviated:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "tool": { "name": "testls", "version": "0.1.0" },
   "target": { "input": "example.com", "address": "192.0.2.1:443", "sni": "example.com" },
   "started_at": 1792835801,
@@ -273,7 +278,8 @@ Abbreviated:
         { "id": "0x11ec", "name": "X25519MLKEM768", "severity": "ok" },
         { "id": "0x001d", "name": "x25519", "severity": "ok" }
       ],
-      "dh_bits": null
+      "dh_bits": null,
+      "dh_suites": []
     }
   ],
   "post_quantum": {

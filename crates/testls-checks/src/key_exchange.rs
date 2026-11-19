@@ -82,6 +82,13 @@ pub fn key_exchange_findings(result: &KeyExchangeResult) -> Vec<Finding> {
             ));
         }
     }
+    if result.dh_suites.iter().any(|d| d.bits.is_none()) {
+        out.push(Finding::new(
+            "dh.incomplete",
+            Severity::Info,
+            format!("{v} DH parameters could not be measured for every accepted suite"),
+        ));
+    }
     if v == ProtocolVersion::TLS13
         && !result.groups.is_empty()
         && !result.groups.iter().any(|&g| is_post_quantum(g))
@@ -112,8 +119,8 @@ mod tests {
             groups: groups.to_vec(),
             group_order: CipherOrder::Server,
             dh_bits,
-            dh_prime: None,
             dh_key_reused: None,
+            dh_suites: Vec::new(),
         }
     }
 
@@ -154,6 +161,21 @@ mod tests {
             "TLSv1.2 secp224r1: deprecated curve (RFC 8422 §5.1.1)"
         );
         assert_eq!(crate::max_severity(&f), Some(Severity::Medium));
+    }
+
+    /// A weak measurement and an unmeasured suite both produce findings.
+    #[test]
+    fn partial_dh_findings() {
+        let mut r = result(ProtocolVersion::TLS12, &[], Some(1024));
+        r.dh_suites.push(testls_probe::DhSuiteResult {
+            suite: 0x003a,
+            bits: None,
+            primes: Vec::new(),
+            key_reused: None,
+        });
+        let findings = key_exchange_findings(&r);
+        assert!(findings.iter().any(|f| f.id == "dh.weak"));
+        assert!(findings.iter().any(|f| f.id == "dh.incomplete"));
     }
 
     /// Every registered ML-KEM group counts as post-quantum; draft Kyber

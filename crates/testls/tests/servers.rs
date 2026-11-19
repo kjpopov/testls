@@ -95,7 +95,8 @@ fn legacy_server() {
         "Key exchange TLSv1.2 client order"
     );
     assert!(s.has("0x001d  x25519"));
-    assert!(s.has("DH      2048 bits"));
+    assert!(s.has("DH      1024 bits"));
+    assert!(s.has("DH 0x0034  1024 bits"));
     assert_eq!(s.line("Certificate"), "Certificate (TLSv1.2)");
     assert_eq!(s.line("#0"), "#0 CN=localhost");
     assert_eq!(s.line("names"), "names   localhost, 127.0.0.1");
@@ -104,7 +105,7 @@ fn legacy_server() {
     assert!(s.has("[vuln.beast]"));
     assert_eq!(
         s.line("Logjam"),
-        "Logjam                         not vulnerable 2048-bit MODP group 14"
+        "Logjam                         vulnerable     TLSv1.0 uses the well-known Oakley group 2 (RFC 2409, section 6.2) [vuln.logjam]"
     );
     assert_eq!(
         s.line("Downgrade"),
@@ -284,7 +285,7 @@ fn json_report() {
     );
     assert!(!s.has("\x1b["), "{}", s.stdout);
     let v: serde_json::Value = serde_json::from_str(&s.stdout).expect("valid JSON");
-    assert_eq!(v["schema_version"], 1);
+    assert_eq!(v["schema_version"], 2);
     assert_eq!(v["target"]["address"], "127.0.0.1:14433");
     let tls10 = v["protocols"]
         .as_array()
@@ -307,7 +308,25 @@ fn json_report() {
         .find(|k| k["protocol"] == "TLSv1.2")
         .unwrap();
     assert_eq!(kx["group_order"], "client");
-    assert_eq!(kx["dh_bits"], 2048);
+    assert_eq!(kx["dh_bits"], 1024);
+    let dh_suites = kx["dh_suites"].as_array().unwrap();
+    assert!(
+        dh_suites
+            .iter()
+            .any(|d| d["suite"] == "0x0033" && d["bits"] == 2048)
+    );
+    assert!(
+        dh_suites
+            .iter()
+            .any(|d| d["suite"] == "0x0034" && d["bits"] == 1024)
+    );
+    assert!(
+        v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["id"] == "dh.weak")
+    );
     assert!(
         kx["groups"]
             .as_array()

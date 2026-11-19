@@ -516,7 +516,12 @@ pub fn policy_findings(policy: Policy, input: &PolicyInput<'_>) -> Vec<Finding> 
     match input.key_exchange {
         Some(results) => {
             findings.extend(group_deviations(policy, results));
-            if failed(input.key_exchange_errors) {
+            if failed(input.key_exchange_errors)
+                || results.iter().any(|r| {
+                    rules.versions.contains(&r.version)
+                        && r.dh_suites.iter().any(|d| d.bits.is_none())
+                })
+            {
                 untested.push("key exchange groups");
             }
         }
@@ -611,11 +616,12 @@ fn group_deviations(policy: Policy, results: &[KeyExchangeResult]) -> Vec<Findin
                 seen.push(what);
             }
         }
-        if let Some(prime) = &result.dh_prime
-            && let Some(what) = prime_deviation(prime, allowed, rules)
-            && !seen.contains(&what)
-        {
-            seen.push(what);
+        for prime in result.dh_suites.iter().flat_map(|d| &d.primes) {
+            if let Some(what) = prime_deviation(prime, allowed, rules)
+                && !seen.contains(&what)
+            {
+                seen.push(what);
+            }
         }
     }
     seen.iter()
@@ -806,7 +812,7 @@ fn hsts_deviation(policy: Policy, response: &HttpResponse, min_age: u64) -> Opti
 
 #[cfg(test)]
 mod tests {
-    use testls_probe::CipherOrder;
+    use testls_probe::{CipherOrder, DhSuiteResult};
 
     use super::*;
 
@@ -857,8 +863,8 @@ mod tests {
             groups: groups.to_vec(),
             group_order: CipherOrder::Server,
             dh_bits: None,
-            dh_prime: None,
             dh_key_reused: None,
+            dh_suites: Vec::new(),
         }
     }
 
@@ -1273,6 +1279,19 @@ mod tests {
         }
     }
 
+    /// One measured `TLS_DHE_RSA_WITH_AES_128_GCM_SHA256` sample for `prime`.
+    fn dh_suite(prime: Option<Vec<u8>>) -> Vec<DhSuiteResult> {
+        prime
+            .map(|p| DhSuiteResult {
+                suite: 0x009e,
+                bits: Some(p.len() * 8),
+                primes: vec![p],
+                key_reused: None,
+            })
+            .into_iter()
+            .collect()
+    }
+
     /// TLSv1.2 DHE primes count as groups even without `supported_groups`:
     /// BSI TR-02102-2 rejects `ffdhe2048`, `ffdhe6144`, MODP group 14 and
     /// custom primes; NIST SP 800-52r2 accepts MODP group 14 but not custom
@@ -1280,7 +1299,7 @@ mod tests {
     #[test]
     fn dhe_primes() {
         let dhe = |prime: Option<Vec<u8>>| KeyExchangeResult {
-            dh_prime: prime,
+            dh_suites: dh_suite(prime),
             ..groups(ProtocolVersion::TLS12, &[])
         };
         let known = |name: &str| {
@@ -1322,6 +1341,87 @@ mod tests {
         assert_eq!(
             messages(Policy::Nist80052r2),
             ["DHE uses a custom 2047-bit prime, which nist-800-52r2 does not allow"]
+        );
+    }
+
+    /// Every prime a suite rotated through is checked: BSI rejects the
+    /// `ffdhe6144` first sample even though the smaller `ffdhe3072` is
+    /// allowed, and two allowed primes pass.
+    #[test]
+    fn rotated_dhe_primes() {
+        let known = |name: &str| {
+            let k = testls_data::known_dh_primes()
+                .iter()
+                .find(|k| k.name == name);
+            unhex(k.unwrap().hex)
+        };
+        let rotated = |first: &str, second: &str| {
+            let mut k = groups(ProtocolVersion::TLS12, &[]);
+            k.dh_suites = vec![DhSuiteResult {
+                suite: 0x009e,
+                bits: Some(3072),
+                primes: vec![known(first), known(second)],
+                key_reused: None,
+            }];
+            let results = [k];
+            let input = PolicyInput {
+                key_exchange: Some(&results),
+                ..bsi_input()
+            };
+            policy_findings(Policy::BsiTr021022, &input)
+                .into_iter()
+                .filter(|f| f.id == "policy.group")
+                .map(|f| f.message)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            rotated("ffdhe6144", "ffdhe3072"),
+            [
+                "key exchange group ffdhe6144 (0x0103) is accepted, which bsi-tr-02102-2 does not allow"
+            ]
+        );
+        assert_eq!(rotated("ffdhe4096", "ffdhe3072"), Vec::<String>::new());
+    }
+
+    /// Policy checks all measured suite primes and reports incomplete coverage.
+    #[test]
+    fn mixed_dhe_policy() {
+        let mut k = groups(ProtocolVersion::TLS12, &[]);
+        k.dh_suites = vec![
+            DhSuiteResult {
+                suite: 0x0033,
+                bits: Some(2048),
+                primes: vec![unhex(testls_data::known_dh_primes()[11].hex)],
+                key_reused: Some(false),
+            },
+            DhSuiteResult {
+                suite: 0x0034,
+                bits: Some(1024),
+                primes: vec![vec![0xff; 128]],
+                key_reused: Some(false),
+            },
+            DhSuiteResult {
+                suite: 0x003a,
+                bits: None,
+                primes: Vec::new(),
+                key_reused: None,
+            },
+        ];
+        let results = [k];
+        let input = PolicyInput {
+            key_exchange: Some(&results),
+            ..bsi_input()
+        };
+        let findings = policy_findings(Policy::PciDss4, &input);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.id == "policy.group" && f.message.contains("1024-bit"))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.id == "policy.incomplete" && f.message.contains("key exchange"))
         );
     }
 
@@ -1481,7 +1581,7 @@ mod tests {
                 .map(|k| unhex(k.hex))
         };
         let dhe = |prime: Option<Vec<u8>>| KeyExchangeResult {
-            dh_prime: prime,
+            dh_suites: dh_suite(prime),
             ..groups(ProtocolVersion::TLS12, &[0x0017])
         };
         let mut custom2048 = vec![0x80];

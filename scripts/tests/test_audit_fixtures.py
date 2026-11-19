@@ -48,6 +48,13 @@ def fixture():
 class AdapterTests(unittest.TestCase):
     """Verify conservative normalization, comparison and malformed-output handling."""
 
+    def test_schema_v2(self):
+        """The adapter accepts current reports and retains v1 compatibility."""
+        data = sample_testls()
+        old = AUDIT.testls_result(data)
+        data["schema_version"] = 2
+        self.assertEqual(AUDIT.testls_result(data), old)
+
     def test_agreement_does_not_make_not_tested_safe(self):
         """Allow patched no-positive controls while retaining inconclusive vulnerability notes."""
         row = AUDIT.compare(fixture(), AUDIT.testls_result(sample_testls()),

@@ -25,8 +25,17 @@ All notable changes to `testls` are listed here. The format follows
   closes early on invalid padding and now produces a high `vuln.robot`; the
   fixed 3.13.0 waits in every case and stays not tested.
 
+### Changed
+
+- JSON schema 2: `key_exchange[].dh_suites` lists each accepted DH suite
+  with its prime and key reuse; `dh_bits` is now the smallest measured prime.
+  Regenerate schema 1 baselines.
+
 ### Fixed
 
+- DH parameters are measured per accepted suite, so a weak group on one suite
+  is no longer hidden by a stronger one; unmeasured suites keep Logjam and
+  Raccoon not tested (#162).
 - Test fixtures resolve names through a CoreDNS service with A and PTR
   records, so fixtures that look up client names no longer stall when the
   host has no reverse DNS for the container peer (#163).

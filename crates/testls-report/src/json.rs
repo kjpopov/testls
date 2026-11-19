@@ -4,6 +4,7 @@
 //! the probe and check types so internal refactors cannot change the output.
 
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::net::SocketAddr;
 
 use serde::Serialize;
@@ -23,7 +24,7 @@ use crate::text::{
 
 /// Version of the JSON schema. Bumped on any change that is not a pure
 /// addition of fields.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Everything a scan produced, borrowed for rendering.
 #[derive(Debug, Clone, Copy)]
@@ -180,11 +181,26 @@ struct KeyExchangeJson {
     group_order: Option<&'static str>,
     /// Supported groups in the order the server chose them.
     groups: Vec<GroupJson>,
-    /// Size of the ephemeral DH prime in bits, or `null` without DHE.
+    /// Smallest measured ephemeral DH prime in bits, or `null` if none.
     dh_bits: Option<usize>,
+    /// Measurements for each accepted finite-field DH suite.
+    dh_suites: Vec<DhSuiteJson>,
     /// Error message when the probe failed.
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+/// DH evidence for one cipher suite; null values indicate missing measurements.
+#[derive(Debug, Serialize)]
+struct DhSuiteJson {
+    /// IANA suite code point.
+    suite: String,
+    /// Prime size in bits.
+    bits: Option<usize>,
+    /// Distinct primes seen, as hexadecimal big-endian bytes.
+    primes: Vec<String>,
+    /// Whether comparable handshakes reused the public value.
+    key_reused: Option<bool>,
 }
 
 /// One supported group.
@@ -659,6 +675,25 @@ fn key_exchange(section: &KeyExchangeSection) -> KeyExchangeJson {
             group_order: order(k.group_order),
             groups: k.groups.iter().map(|&id| group(id)).collect(),
             dh_bits: k.dh_bits,
+            dh_suites: k
+                .dh_suites
+                .iter()
+                .map(|d| DhSuiteJson {
+                    suite: format!("0x{:04x}", d.suite),
+                    bits: d.bits,
+                    primes: d
+                        .primes
+                        .iter()
+                        .map(|p| {
+                            p.iter().fold(String::new(), |mut out, b| {
+                                write!(out, "{b:02x}").expect("writing to a string cannot fail");
+                                out
+                            })
+                        })
+                        .collect(),
+                    key_reused: d.key_reused,
+                })
+                .collect(),
             error: None,
         },
         Err(e) => KeyExchangeJson {
@@ -666,6 +701,7 @@ fn key_exchange(section: &KeyExchangeSection) -> KeyExchangeJson {
             group_order: None,
             groups: Vec::new(),
             dh_bits: None,
+            dh_suites: Vec::new(),
             error: Some(e.clone()),
         },
     }
@@ -995,7 +1031,7 @@ mod tests {
         assert_eq!(
             value(&report),
             json!({
-                "schema_version": 1,
+                "schema_version": 2,
                 "tool": {"name": "testls", "version": env!("CARGO_PKG_VERSION")},
                 "target": {"input": "localhost:443", "address": "127.0.0.1:443", "sni": "localhost"},
                 "started_at": 1_700_000_000,
@@ -1040,8 +1076,8 @@ mod tests {
                     groups: vec![0x11ec, 0x001d],
                     group_order: CipherOrder::Client,
                     dh_bits: None,
-                    dh_prime: None,
                     dh_key_reused: None,
+                    dh_suites: Vec::new(),
                 }),
             },
             KeyExchangeSection {
@@ -1051,8 +1087,21 @@ mod tests {
                     groups: vec![0x0015],
                     group_order: CipherOrder::NotApplicable,
                     dh_bits: Some(1024),
-                    dh_prime: None,
                     dh_key_reused: None,
+                    dh_suites: vec![
+                        testls_probe::DhSuiteResult {
+                            suite: 0x0034,
+                            bits: Some(1024),
+                            primes: vec![vec![0xab, 0xcd]],
+                            key_reused: Some(false),
+                        },
+                        testls_probe::DhSuiteResult {
+                            suite: 0x003a,
+                            bits: None,
+                            primes: Vec::new(),
+                            key_reused: None,
+                        },
+                    ],
                 }),
             },
             KeyExchangeSection {
@@ -1091,15 +1140,15 @@ mod tests {
                         {"id": "0x11ec", "name": "X25519MLKEM768", "severity": "ok"},
                         {"id": "0x001d", "name": "x25519", "severity": "ok"},
                     ],
-                    "dh_bits": null,
+                    "dh_bits": null, "dh_suites": [],
                 },
                 {
                     "protocol": "TLSv1.2",
                     "group_order": null,
                     "groups": [{"id": "0x0015", "name": "secp224r1", "severity": "medium"}],
-                    "dh_bits": 1024,
+                    "dh_bits": 1024, "dh_suites": [{"suite": "0x0034", "bits": 1024, "primes": ["abcd"], "key_reused": false}, {"suite": "0x003a", "bits": null, "primes": [], "key_reused": null}],
                 },
-                {"protocol": "TLSv1.1", "group_order": null, "groups": [], "dh_bits": null, "error": "reset"},
+                {"protocol": "TLSv1.1", "group_order": null, "groups": [], "dh_bits": null, "dh_suites": [], "error": "reset"},
             ])
         );
     }

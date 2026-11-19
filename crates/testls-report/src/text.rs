@@ -134,7 +134,14 @@ pub fn key_exchange(section: &KeyExchangeSection, paint: Painter) -> String {
         let label = format!("DH      {bits} bits");
         let _ = writeln!(out, "  {}", paint.severity(dh_severity(bits).0, &label));
     }
-    if k.groups.is_empty() && k.dh_bits.is_none() {
+    for d in &k.dh_suites {
+        let label = match d.bits {
+            Some(bits) => format!("DH 0x{:04x}  {bits} bits", d.suite),
+            None => format!("DH 0x{:04x}  not measured", d.suite),
+        };
+        let _ = writeln!(out, "  {label}");
+    }
+    if k.groups.is_empty() && k.dh_bits.is_none() && k.dh_suites.is_empty() {
         let _ = writeln!(out, "  no ECDHE or DHE key exchange");
     }
     out
@@ -722,8 +729,8 @@ mod tests {
                 groups: vec![0x001d, 0x0017],
                 group_order: CipherOrder::Server,
                 dh_bits: Some(2048),
-                dh_prime: None,
                 dh_key_reused: None,
+                dh_suites: Vec::new(),
             }),
         };
         assert_eq!(
@@ -742,8 +749,8 @@ mod tests {
                 groups: vec![],
                 group_order: CipherOrder::NotApplicable,
                 dh_bits: None,
-                dh_prime: None,
                 dh_key_reused: None,
+                dh_suites: Vec::new(),
             }),
         };
         assert_eq!(
