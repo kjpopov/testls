@@ -94,7 +94,7 @@ delete no local branch while any is busy. Never delete local `main`, even
 though it is listed as merged. Only when all checks pass:
 
 ```sh
-git worktree list --porcelain | grep -qx 'branch refs/heads/BRANCH' \
+git worktree list --porcelain | grep -qxF 'branch refs/heads/BRANCH' \
   || git update-ref -d refs/heads/BRANCH "$oid"   # fails if BRANCH moved: recheck
 ```
 
@@ -119,8 +119,9 @@ cherry-pick or revert in progress), or a detached one whose HEAD no branch
 that stays after cleanup holds. Worktrees in agent scratch space on merged
 or detached branches are the usual stale ones, but a clean worktree can still
 be in use by another agent or session. Clean checks do not prove it is idle:
-list the candidates and remove only those the user confirms. Only when the
-checks pass and the user confirmed:
+list the candidates and remove only those the user confirms. After the
+confirmation, rerun all checks above and keep the worktree if any now fails.
+Only when the rerun passes:
 
 ```sh
 git worktree remove <worktree-dir>     # add --force only after user confirms
