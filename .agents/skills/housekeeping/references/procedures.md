@@ -31,7 +31,8 @@ git merge-base --is-ancestor "$oid" refs/remotes/origin/main && echo "BR $oid me
 Leases cover only the deleted refs, not `main`. Run this only if remote
 `main` is protected against force-pushes; if not, report and stop. Right
 before the push, `git fetch --prune origin` again and repeat the ancestry
-check with the captured oids.
+check (or, for squash merges, the content check below) with the captured
+oids.
 
 Delete in one atomic batch, leasing every ref, so a branch updated since the
 check is not deleted:
@@ -77,18 +78,25 @@ or whose remote counterpart is gone:
 
 ```sh
 git branch --merged main | grep -vE '^[*+]? *main$'
-git branch -D BRANCH          # only after the unique-content check above
+git branch -D BRANCH          # only after the checks above on the local tip
 ```
 
-Never delete local `main`, even though it is listed as merged.
+Run the ancestry or content check on the local branch's own tip, not its
+remote counterpart: it may hold commits that were never pushed. Never delete
+local `main`, even though it is listed as merged.
 
 ## Worktrees
 
 ```sh
 git -C <worktree-dir> status --short --ignored   # clean?
 git worktree remove <worktree-dir>     # add --force only after user confirms
+git worktree prune --dry-run --verbose
 git worktree prune
 ```
+
+Prune only when every dry-run entry is a directory you confirmed was
+deleted; a worktree on an unmounted drive looks missing too. Otherwise keep
+and report it (or `git worktree lock` it).
 
 Worktrees in temp directories (agent scratch space) on merged or detached
 branches are the usual stale ones. For a detached worktree, keep and report
