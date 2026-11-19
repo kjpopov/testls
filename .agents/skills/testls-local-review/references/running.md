@@ -20,8 +20,10 @@ pass `--use-credits` unless the maintainer said so.
 
 ## Review
 
-A run takes 2-6 minutes, sometimes up to 15: set the tool timeout to 900 s
-and wait with one command. Keep the output in a file outside the checkout
+A run usually takes a few minutes but can exceed 30. Don't let a tool
+timeout cut it off: run it in the background, or set a timeout of at least
+1800 s, and wait until the `complete` event appears (`heartbeat` events
+mean it is still running). Keep the output in a file outside the checkout
 so it doesn't show up as untracked:
 
 ```sh

@@ -26,7 +26,8 @@ cost a push and a GitHub review slot.
 - At most two review runs per push. Each run tends to surface new nits;
   stop when no critical or major finding is left.
 - Local review does not replace the PR review: the PR still needs
-  CodeRabbit's approval (see `docs/agent-workflow.md`).
+  CodeRabbit's approval, or its explained withheld approval under
+  "Checking status" in `docs/agent-workflow.md`.
 
 ## Workflow
 
