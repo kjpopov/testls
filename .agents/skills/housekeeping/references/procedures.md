@@ -58,12 +58,13 @@ Traps:
   change with the target and any later changes. A keyword match or a note
   alone does not establish that all branch work landed. If that cannot be
   verified, keep the branch and report it. An empty diff with commits in
-  `git log refs/remotes/origin/main..BR` (for example a change and its
-  revert) is not proof either: keep and report. For example:
+  `git log refs/remotes/origin/main.."$oid"` (for example a change and its
+  revert) is not proof either: keep and report. Inspect the captured tip,
+  not a local branch of the same name:
 
   ```sh
-  git diff --stat "$(git merge-base refs/remotes/origin/main BR)" BR
-  git diff --binary "$(git merge-base refs/remotes/origin/main BR)" BR
+  git diff --stat "$(git merge-base refs/remotes/origin/main "$oid")" "$oid"
+  git diff --binary "$(git merge-base refs/remotes/origin/main "$oid")" "$oid"
   ```
 
 - **Current branch.** Never delete the branch checked out in any
@@ -128,7 +129,9 @@ git fetch origin main:main   # fast-forward local main; fails if diverged
 ```
 
 This refuses to update `main` while it is checked out; then run
-`git -C <that-worktree> merge --ff-only origin/main` there if it is clean.
+`git -C <that-worktree> merge --ff-only origin/main` there if it is clean
+(`git -C <that-worktree> status --short --ignored` lists nothing outside
+`target/`; a merge silently overwrites ignored files).
 If either fails, report it instead of forcing.
 
 ## Object hygiene
