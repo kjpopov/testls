@@ -9,12 +9,11 @@ Run from the root of the branch's checkout or worktree. CLI docs:
 coderabbit auth status --agent    # need "authenticated":true
 coderabbit usage                  # reviews left in the current window
 git status --short                # must be empty: commit first
-git fetch -q origin main
-base=$(git merge-base origin/main HEAD)
+git fetch -q origin main && base=$(git merge-base origin/main HEAD) && echo "base=$base"
 ```
 
-Fetch first: a stale `origin/main` puts already-merged commits into the
-diff and the review comments on them.
+No `base=` line means the fetch or merge base failed: report `BLOCKED`. A
+stale `origin/main` puts already-merged commits into the diff.
 
 If usage shows no reviews left, report `BLOCKED` with the reset time; don't
 pass `--use-credits` unless the maintainer said so.
@@ -64,8 +63,8 @@ Full text of one finding (N counts from 0); `codegenInstructions` and
 grep '"type":"finding"' "$out" | jq -s '.[N] | {comment, codegenInstructions, suggestions}'
 ```
 
-`coderabbit review findings` shows the last stored review again without a
-new run.
+Triage from `$out` only: `coderabbit review findings` can show an older
+run's findings when the latest run had none.
 
 ## Second run
 
