@@ -79,10 +79,13 @@ or whose remote counterpart is gone:
 ```sh
 git branch --merged main | grep -vE '^[*+]? *main$'
 git branch -vv | grep ': gone]'   # remote counterpart deleted
+git for-each-ref --format='%(refname:short) %(upstream)' refs/heads/ | awk 'NF == 1'   # no upstream
 oid=$(git rev-parse refs/heads/BRANCH)
 ```
 
-Run the ancestry or content check on that captured local tip, not its
+A branch without an upstream is a candidate too; `gone` never shows for it.
+Compare it with `refs/remotes/origin/BRANCH` after the fetch, and keep it
+unless the checks below prove its work landed. Run the ancestry or content check on that captured local tip, not its
 remote counterpart: it may hold commits that were never pushed. Confirm with
 `git worktree list` that no worktree uses the branch (`update-ref` does not
 refuse a checked-out branch). A rebase or bisect shows a detached HEAD but
@@ -99,6 +102,7 @@ git update-ref -d refs/heads/BRANCH "$oid"   # fails if BRANCH moved: recheck
 Check before removing; `git worktree remove` deletes ignored files too:
 
 ```sh
+git -C <worktree-dir> ls-files -v | grep -E '^([a-z]|S)'   # assume-unchanged/skip-worktree: status hides edits, keep
 git -C <worktree-dir> status --short --ignored --untracked-files=all   # only target/ allowed
 for p in rebase-merge rebase-apply BISECT_LOG MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
   test -e "$(git -C <worktree-dir> rev-parse --git-path "$p")" && echo "busy: $p"
@@ -107,7 +111,8 @@ oid=$(git -C <worktree-dir> rev-parse HEAD)
 git for-each-ref --contains="$oid" refs/heads/ refs/remotes/   # detached: empty means keep
 ```
 
-Keep and report a worktree with uncommitted or ignored files (other than
+Keep and report a worktree with assume-unchanged or skip-worktree files
+(sparse checkouts included), uncommitted or ignored files (other than
 build output such as `target/`), one that is busy (rebase, bisect, merge,
 cherry-pick or revert in progress), or a detached one whose HEAD no branch
 that stays after cleanup holds. Worktrees in temp directories (agent scratch
