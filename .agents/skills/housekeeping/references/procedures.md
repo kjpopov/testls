@@ -20,7 +20,7 @@ Record each checked tip (`git rev-parse origin/BR`) and delete in one batch,
 leasing every ref so a branch updated since the check is not deleted:
 
 ```sh
-git push <fetch-url> --force-with-lease=refs/heads/BR1:<oid1> \
+git push origin --force-with-lease=refs/heads/BR1:<oid1> \
   --force-with-lease=refs/heads/BR2:<oid2> --delete BR1 BR2 ...
 git fetch --prune origin
 ```
@@ -32,8 +32,8 @@ Traps:
 
 - **Partial batch failure.** If any ref no longer exists remotely, git
   prints `remote ref does not exist` for it and fails the whole push — the
-  other deletions in that push did not happen. Collect the surviving refs
-  from the error list and push them again.
+  other deletions in that push did not happen. Drop the refs it reports
+  from the original list and push the rest again.
 - **Squash-merge blindness.** `--merged` misses squash-merged branches.
   Inspect the complete branch diff from its merge base, including additions,
   modifications, deletions, renames and binary files, and compare every
