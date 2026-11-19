@@ -78,16 +78,18 @@ or whose remote counterpart is gone:
 
 ```sh
 git branch --merged main | grep -vE '^[*+]? *main$'
-oid=$(git rev-parse refs/heads/BRANCH)   # tip the checks below run on
-git update-ref -d refs/heads/BRANCH "$oid"   # fails if BRANCH moved
+oid=$(git rev-parse refs/heads/BRANCH)
 ```
 
 Run the ancestry or content check on that captured local tip, not its
-remote counterpart: it may hold commits that were never pushed. If the
-delete fails, the branch moved: recheck it. `update-ref` does not refuse a
-checked-out branch, so first confirm with `git worktree list` that no
-worktree uses it. Never delete local `main`, even though it is listed as
-merged.
+remote counterpart: it may hold commits that were never pushed. Confirm with
+`git worktree list` that no worktree uses the branch (`update-ref` does not
+refuse a checked-out branch). Never delete local `main`, even though it is
+listed as merged. Only when all checks pass:
+
+```sh
+git update-ref -d refs/heads/BRANCH "$oid"   # fails if BRANCH moved: recheck
+```
 
 ## Worktrees
 
