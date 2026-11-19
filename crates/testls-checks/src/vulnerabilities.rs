@@ -293,6 +293,14 @@ fn beast(inputs: &Inputs) -> Vulnerability {
     verdict
 }
 
+/// Bit length of big-endian `n`, ignoring leading zero bytes.
+fn bit_len(n: &[u8]) -> usize {
+    let digits: Vec<_> = n.iter().skip_while(|&&b| b == 0).collect();
+    digits
+        .first()
+        .map_or(0, |b| digits.len() * 8 - b.leading_zeros() as usize)
+}
+
 /// Logjam: export DHE suites, small DH groups, or a widely shared 1024-bit
 /// prime that is a precomputation target.
 fn logjam(inputs: &Inputs) -> Vulnerability {
@@ -306,13 +314,13 @@ fn logjam(inputs: &Inputs) -> Vulnerability {
     }
     let mut detail = None;
     for k in inputs.legacy_key_exchange() {
-        for d in &k.dh_suites {
-            let Some(bits) = d.bits else { continue };
+        for p in k.dh_suites.iter().flat_map(|d| &d.primes) {
+            let bits = bit_len(p);
             if bits < 1024 {
                 let text = format!("{} uses a {bits}-bit DH group", k.version);
                 return vuln(id, name, VulnStatus::Vulnerable, text, "dh.weak");
             }
-            let known = d.prime.as_deref().and_then(testls_data::known_dh_prime);
+            let known = testls_data::known_dh_prime(p);
             if let Some(p) = known.filter(|p| !p.ffdhe && bits <= 1024) {
                 let text = format!(
                     "{} uses the well-known {} ({})",
@@ -749,7 +757,7 @@ mod tests {
                 .map(|p| DhSuiteResult {
                     suite: 0x009e,
                     bits: Some(p.len() * 8),
-                    prime: Some(p),
+                    primes: vec![p],
                     key_reused: reused,
                 })
                 .into_iter()
@@ -967,7 +975,7 @@ mod tests {
         let sample = |suite, prime: Option<Vec<u8>>, key_reused| DhSuiteResult {
             suite,
             bits: prime.as_ref().map(|p| p.len() * 8),
-            prime,
+            primes: prime.into_iter().collect(),
             key_reused,
         };
         let mut k = kx(version, Some(vec![0xff; 256]), None);
@@ -996,6 +1004,27 @@ mod tests {
             "1024-bit custom DH group"
         );
         assert_eq!(status(&verdicts, "raccoon"), VulnStatus::NotVulnerable);
+    }
+
+    /// A suite rotating from a custom 1024-bit prime to Oakley group 2 is
+    /// judged on both samples.
+    #[test]
+    fn rotated_dh_prime_logjam() {
+        let version = ProtocolVersion::TLS12;
+        let mut k = kx(version, Some(vec![0xff; 128]), Some(false));
+        k.dh_suites[0]
+            .primes
+            .push(unhex(testls_data::known_dh_primes()[1].hex));
+        k.dh_suites[0].key_reused = None;
+        let verdicts = assess_vulnerabilities(
+            &protocols(&[version]),
+            &[ciphers(version, &[0x009e])],
+            &[k],
+            None,
+            None,
+            None,
+        );
+        assert_eq!(status(&verdicts, "logjam"), VulnStatus::Vulnerable);
     }
 
     /// Missing data leads to "not tested" rather than a guess.

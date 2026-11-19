@@ -197,8 +197,8 @@ struct DhSuiteJson {
     suite: String,
     /// Prime size in bits.
     bits: Option<usize>,
-    /// Prime as hexadecimal big-endian bytes.
-    prime: Option<String>,
+    /// Distinct primes seen, as hexadecimal big-endian bytes.
+    primes: Vec<String>,
     /// Whether comparable handshakes reused the public value.
     key_reused: Option<bool>,
 }
@@ -681,12 +681,16 @@ fn key_exchange(section: &KeyExchangeSection) -> KeyExchangeJson {
                 .map(|d| DhSuiteJson {
                     suite: format!("0x{:04x}", d.suite),
                     bits: d.bits,
-                    prime: d.prime.as_ref().map(|p| {
-                        p.iter().fold(String::new(), |mut out, b| {
-                            write!(out, "{b:02x}").expect("writing to a string cannot fail");
-                            out
+                    primes: d
+                        .primes
+                        .iter()
+                        .map(|p| {
+                            p.iter().fold(String::new(), |mut out, b| {
+                                write!(out, "{b:02x}").expect("writing to a string cannot fail");
+                                out
+                            })
                         })
-                    }),
+                        .collect(),
                     key_reused: d.key_reused,
                 })
                 .collect(),
@@ -1088,13 +1092,13 @@ mod tests {
                         testls_probe::DhSuiteResult {
                             suite: 0x0034,
                             bits: Some(1024),
-                            prime: Some(vec![0xab, 0xcd]),
+                            primes: vec![vec![0xab, 0xcd]],
                             key_reused: Some(false),
                         },
                         testls_probe::DhSuiteResult {
                             suite: 0x003a,
                             bits: None,
-                            prime: None,
+                            primes: Vec::new(),
                             key_reused: None,
                         },
                     ],
@@ -1142,7 +1146,7 @@ mod tests {
                     "protocol": "TLSv1.2",
                     "group_order": null,
                     "groups": [{"id": "0x0015", "name": "secp224r1", "severity": "medium"}],
-                    "dh_bits": 1024, "dh_suites": [{"suite": "0x0034", "bits": 1024, "prime": "abcd", "key_reused": false}, {"suite": "0x003a", "bits": null, "prime": null, "key_reused": null}],
+                    "dh_bits": 1024, "dh_suites": [{"suite": "0x0034", "bits": 1024, "primes": ["abcd"], "key_reused": false}, {"suite": "0x003a", "bits": null, "primes": [], "key_reused": null}],
                 },
                 {"protocol": "TLSv1.1", "group_order": null, "groups": [], "dh_bits": null, "dh_suites": [], "error": "reset"},
             ])

@@ -76,11 +76,11 @@ per target, in scan order. This page describes schema version **2**.
 | `groups[].id` | string | Hex code point, e.g. `"0x11ec"` |
 | `groups[].name` | string | IANA name, e.g. `"X25519MLKEM768"` |
 | `groups[].severity` | string | Severity of the group, see [Finding](#finding) |
-| `dh_bits` | integer or null | Smallest DH prime measured over `dh_suites` (TLSv1.2 and older); `null` if none was measured |
+| `dh_bits` | integer or null | Smallest DH prime seen in `dh_suites` (TLSv1.2 and older); `null` if none was measured |
 | `dh_suites` | array | One entry per accepted DHE, anonymous DH or DHE-PSK suite |
 | `dh_suites[].suite` | string | Hex code point, e.g. `"0x0034"` |
-| `dh_suites[].bits` | integer or null | Prime size; `null` if not measured (always for DHE-PSK) |
-| `dh_suites[].prime` | string or null | Prime as big-endian hex |
+| `dh_suites[].bits` | integer or null | Smaller prime size of the two handshakes; `null` if either failed (always for DHE-PSK) |
+| `dh_suites[].primes` | array of strings | Distinct primes seen in the two handshakes as big-endian hex; may be non-empty when `bits` is `null` |
 | `dh_suites[].key_reused` | boolean or null | Same public value in two handshakes with identical parameters; `null` if not comparable |
 | `error` | string | Only when the probe failed; `groups` and `dh_suites` are then empty |
 

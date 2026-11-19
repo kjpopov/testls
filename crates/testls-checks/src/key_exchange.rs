@@ -170,7 +170,7 @@ mod tests {
         r.dh_suites.push(testls_probe::DhSuiteResult {
             suite: 0x003a,
             bits: None,
-            prime: None,
+            primes: Vec::new(),
             key_reused: None,
         });
         let findings = key_exchange_findings(&r);

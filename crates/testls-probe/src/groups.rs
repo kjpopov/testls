@@ -24,7 +24,7 @@ pub struct KeyExchangeResult {
     pub groups: Vec<u16>,
     /// Whether the server enforces its own group order.
     pub group_order: CipherOrder,
-    /// Smallest measured DH prime size across accepted suites.
+    /// Smallest DH prime size seen across accepted suites.
     pub dh_bits: Option<usize>,
     /// Whether any suite reused its DH public value. False requires a
     /// comparable pair for every suite; otherwise the result is unknown.
@@ -40,8 +40,9 @@ pub struct DhSuiteResult {
     pub suite: u16,
     /// Prime size, or `None` when the measurement failed or is unsupported.
     pub bits: Option<usize>,
-    /// Measured prime in big-endian form.
-    pub prime: Option<Vec<u8>>,
+    /// Distinct primes seen in the two handshakes, big-endian, in the order
+    /// received; may hold one prime even when `bits` is `None`.
+    pub primes: Vec<Vec<u8>>,
     /// Reuse of the public value for comparable parameters in this suite.
     pub key_reused: Option<bool>,
 }
@@ -284,9 +285,12 @@ pub async fn probe_key_exchange(
             let mut sample = DhSuiteResult {
                 suite,
                 bits: None,
-                prime: None,
+                primes: Vec::new(),
                 key_reused: None,
             };
+            // A server may rotate parameters between handshakes, so keep every
+            // prime. Only two successful samples make the suite measured, but a
+            // single weak prime is still evidence.
             if is_dhe_suite(suite)
                 && let Ok(Some(first)) = dh_params(transport, version, &[suite], sni).await
             {
@@ -294,17 +298,17 @@ pub async fn probe_key_exchange(
                     .await
                     .ok()
                     .flatten();
-                sample.key_reused = second.as_ref().and_then(|s| {
-                    (s.p == first.p && s.g == first.g).then_some(s.public_key == first.public_key)
-                });
-                // A server may rotate parameters between handshakes; keep the weaker.
-                let weaker = match second {
-                    Some(s) if s.prime_bits() < first.prime_bits() => s,
-                    _ => first,
-                };
-                let bits = weaker.prime_bits();
-                sample.bits = Some(bits);
-                sample.prime = Some(weaker.p);
+                let mut bits = first.prime_bits();
+                sample.primes.push(first.p.clone());
+                if let Some(second) = second {
+                    sample.key_reused = (second.p == first.p && second.g == first.g)
+                        .then_some(second.public_key == first.public_key);
+                    bits = bits.min(second.prime_bits());
+                    sample.bits = Some(bits);
+                    if second.p != first.p {
+                        sample.primes.push(second.p);
+                    }
+                }
                 result.dh_bits = Some(result.dh_bits.map_or(bits, |b| b.min(bits)));
             }
             result.dh_suites.push(sample);
@@ -575,13 +579,20 @@ mod mock_server {
         assert_eq!(r.groups, vec![0x0018, 0x001d, 0x0017]);
         assert_eq!(r.group_order, CipherOrder::Server);
         assert_eq!(r.dh_bits, Some(1024));
-        assert_eq!(r.dh_suites[0].prime.as_ref().map(Vec::len), Some(128));
+        assert_eq!(
+            r.dh_suites[0]
+                .primes
+                .iter()
+                .map(Vec::len)
+                .collect::<Vec<_>>(),
+            [128]
+        );
         assert_eq!(r.dh_key_reused, Some(false));
     }
 
     /// Every accepted suite is sampled separately; failures do not erase
-    /// successful measurements, rotated parameters keep the weaker prime, and
-    /// incomparable parameters cannot prove reuse.
+    /// other suites' measurements, rotated parameters keep both primes and
+    /// the smaller size, and incomparable parameters cannot prove reuse.
     #[tokio::test]
     async fn mixed_dh_suites_and_failed_probes() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -647,14 +658,19 @@ mod mock_server {
         assert_eq!(
             r.dh_suites
                 .iter()
-                .map(|d| (d.suite, d.bits, d.key_reused))
+                .map(|d| (
+                    d.suite,
+                    d.bits,
+                    d.key_reused,
+                    d.primes.iter().map(Vec::len).collect::<Vec<_>>()
+                ))
                 .collect::<Vec<_>>(),
             vec![
-                (0x003a, None, None),
-                (0x0033, Some(2048), Some(true)),
-                (0x0034, Some(1024), None),
-                (0x0032, None, None),
-                (0x00aa, None, None)
+                (0x003a, None, None, vec![]),
+                (0x0033, Some(2048), Some(true), vec![256]),
+                (0x0034, Some(1024), None, vec![256, 128]),
+                (0x0032, None, None, vec![]),
+                (0x00aa, None, None, vec![])
             ]
         );
         assert_eq!(r.dh_key_reused, Some(true));
@@ -708,8 +724,9 @@ mod mock_server {
         assert_eq!(r.dh_key_reused, Some(true));
     }
 
-    /// If the second DHE handshake fails, the first result is kept and
-    /// reuse stays unknown.
+    /// If the second DHE handshake fails, the suite stays unmeasured (one
+    /// sample cannot rule out a weaker rotated prime) but keeps its prime as
+    /// evidence.
     #[tokio::test]
     async fn second_dh_handshake_fails() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -735,6 +752,8 @@ mod mock_server {
         .await
         .unwrap();
         assert_eq!(r.dh_bits, Some(512));
+        assert_eq!(r.dh_suites[0].bits, None);
+        assert_eq!(r.dh_suites[0].primes.len(), 1);
         assert_eq!(r.dh_key_reused, None);
     }
 

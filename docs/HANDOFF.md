@@ -293,8 +293,8 @@ if `gh` is allowed); update it when a session ends.
   their previous verdicts. fmt, clippy, probe/scan unit tests, 35 audit tests
   and local integration pass. Merged.
 - DH per-suite coverage (#162, PR #181): `probe_key_exchange` samples each
-  accepted DH suite (`KeyExchangeResult::dh_suites`, `dh_prime` removed);
-  Logjam/Raccoon/policy read all samples; JSON schema 2; decision #106.
+  accepted DH suite twice (`KeyExchangeResult::dh_suites`, `dh_prime` removed;
+  each keeps all distinct `primes`); Logjam/Raccoon/policy read all samples; JSON schema 2; decision #106.
 
 Next free decision: #107 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
 #103 ROBOT fixtures, #104 ROBOT flow oracle, #105 fixture DNS, #106 DH suites). Recheck fresh `main` before assigning

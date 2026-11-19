@@ -616,7 +616,7 @@ fn group_deviations(policy: Policy, results: &[KeyExchangeResult]) -> Vec<Findin
                 seen.push(what);
             }
         }
-        for prime in result.dh_suites.iter().filter_map(|d| d.prime.as_ref()) {
+        for prime in result.dh_suites.iter().flat_map(|d| &d.primes) {
             if let Some(what) = prime_deviation(prime, allowed, rules)
                 && !seen.contains(&what)
             {
@@ -1285,7 +1285,7 @@ mod tests {
             .map(|p| DhSuiteResult {
                 suite: 0x009e,
                 bits: Some(p.len() * 8),
-                prime: Some(p),
+                primes: vec![p],
                 key_reused: None,
             })
             .into_iter()
@@ -1344,6 +1344,45 @@ mod tests {
         );
     }
 
+    /// Every prime a suite rotated through is checked: BSI rejects the
+    /// `ffdhe6144` first sample even though the smaller `ffdhe3072` is
+    /// allowed, and two allowed primes pass.
+    #[test]
+    fn rotated_dhe_primes() {
+        let known = |name: &str| {
+            let k = testls_data::known_dh_primes()
+                .iter()
+                .find(|k| k.name == name);
+            unhex(k.unwrap().hex)
+        };
+        let rotated = |first: &str, second: &str| {
+            let mut k = groups(ProtocolVersion::TLS12, &[]);
+            k.dh_suites = vec![DhSuiteResult {
+                suite: 0x009e,
+                bits: Some(3072),
+                primes: vec![known(first), known(second)],
+                key_reused: None,
+            }];
+            let results = [k];
+            let input = PolicyInput {
+                key_exchange: Some(&results),
+                ..bsi_input()
+            };
+            policy_findings(Policy::BsiTr021022, &input)
+                .into_iter()
+                .filter(|f| f.id == "policy.group")
+                .map(|f| f.message)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            rotated("ffdhe6144", "ffdhe3072"),
+            [
+                "key exchange group ffdhe6144 (0x0103) is accepted, which bsi-tr-02102-2 does not allow"
+            ]
+        );
+        assert_eq!(rotated("ffdhe4096", "ffdhe3072"), Vec::<String>::new());
+    }
+
     /// Policy checks all measured suite primes and reports incomplete coverage.
     #[test]
     fn mixed_dhe_policy() {
@@ -1352,19 +1391,19 @@ mod tests {
             DhSuiteResult {
                 suite: 0x0033,
                 bits: Some(2048),
-                prime: Some(unhex(testls_data::known_dh_primes()[11].hex)),
+                primes: vec![unhex(testls_data::known_dh_primes()[11].hex)],
                 key_reused: Some(false),
             },
             DhSuiteResult {
                 suite: 0x0034,
                 bits: Some(1024),
-                prime: Some(vec![0xff; 128]),
+                primes: vec![vec![0xff; 128]],
                 key_reused: Some(false),
             },
             DhSuiteResult {
                 suite: 0x003a,
                 bits: None,
-                prime: None,
+                primes: Vec::new(),
                 key_reused: None,
             },
         ];
