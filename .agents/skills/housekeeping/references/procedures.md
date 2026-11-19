@@ -93,8 +93,21 @@ git update-ref -d refs/heads/BRANCH "$oid"   # fails if BRANCH moved: recheck
 
 ## Worktrees
 
+Check before removing; `git worktree remove` deletes ignored files too:
+
 ```sh
-git -C <worktree-dir> status --short --ignored   # clean?
+git -C <worktree-dir> status --short --ignored   # only target/ allowed
+oid=$(git -C <worktree-dir> rev-parse HEAD)
+git for-each-ref --contains="$oid" refs/heads/ refs/remotes/   # detached: empty means keep
+```
+
+Keep and report a worktree with uncommitted or ignored files (other than
+build output such as `target/`), or a detached one whose HEAD no branch that
+stays after cleanup holds. Worktrees in temp directories (agent scratch
+space) on merged or detached branches are the usual stale ones. Only when
+the checks pass:
+
+```sh
 git worktree remove <worktree-dir>     # add --force only after user confirms
 git worktree prune --dry-run --verbose
 git worktree prune
@@ -103,18 +116,6 @@ git worktree prune
 Prune only when every dry-run entry is a directory you confirmed was
 deleted; a worktree on an unmounted drive looks missing too. Otherwise keep
 and report it (or `git worktree lock` it).
-
-Worktrees in temp directories (agent scratch space) on merged or detached
-branches are the usual stale ones. For a detached worktree, keep and report
-it unless a branch that stays after cleanup holds its HEAD:
-
-```sh
-oid=$(git -C <worktree-dir> rev-parse HEAD)
-git for-each-ref --contains="$oid" refs/heads/ refs/remotes/   # empty: keep
-```
- `git worktree remove` deletes ignored
-files too: a worktree with uncommitted or ignored files (other than build
-output such as `target/`) is reported, not removed.
 
 ## Stashes
 
