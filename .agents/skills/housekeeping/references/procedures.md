@@ -78,6 +78,7 @@ or whose remote counterpart is gone:
 
 ```sh
 git branch --merged main | grep -vE '^[*+]? *main$'
+git branch -vv | grep ': gone]'   # remote counterpart deleted
 oid=$(git rev-parse refs/heads/BRANCH)
 ```
 
