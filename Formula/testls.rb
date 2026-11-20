@@ -2,28 +2,28 @@
 class Testls < Formula
   desc "TLS/SSL scanner for the web era, inspired by testssl.sh"
   homepage "https://github.com/kjpopov/testls"
-  version "0.6.0"
+  version "0.6.1"
   license any_of: ["MIT", "Apache-2.0"]
 
   on_macos do
     on_arm do
-      url "https://github.com/kjpopov/testls/releases/download/v0.6.0/testls-v0.6.0-aarch64-apple-darwin.tar.gz"
-      sha256 "6a8a7708c4c622394f710f1c53d4e9382d8bb6f3f0b390bfdcc3758a4df60914"
+      url "https://github.com/kjpopov/testls/releases/download/v0.6.1/testls-v0.6.1-aarch64-apple-darwin.tar.gz"
+      sha256 "184eaa757793c034f13de95fcacad3264c676fa991a17db18cc7a485d07b19fe"
     end
     on_intel do
-      url "https://github.com/kjpopov/testls/releases/download/v0.6.0/testls-v0.6.0-x86_64-apple-darwin.tar.gz"
-      sha256 "4476f48be808b86c8453eab7f7adc652dbe80abdd37fa45ebc7f617a0aea62f9"
+      url "https://github.com/kjpopov/testls/releases/download/v0.6.1/testls-v0.6.1-x86_64-apple-darwin.tar.gz"
+      sha256 "09b206351b755e486630a7b9b6569b06a8a23c6cac046153a7b303ed0f07d41e"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/kjpopov/testls/releases/download/v0.6.0/testls-v0.6.0-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "6e817fb7af586362fd3229fee6b3e8c48e0b768c9e68fff9dd743c9d2f79b2c5"
+      url "https://github.com/kjpopov/testls/releases/download/v0.6.1/testls-v0.6.1-aarch64-unknown-linux-musl.tar.gz"
+      sha256 "cdd61b767cf241e6d1d3eddaa855c9e5824813934ec8933233c22bb27853d8a8"
     end
     on_intel do
-      url "https://github.com/kjpopov/testls/releases/download/v0.6.0/testls-v0.6.0-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "612f5a6f033f355b46abaf2270106e162a43a516b7ef5c2e2286bed22e4c528c"
+      url "https://github.com/kjpopov/testls/releases/download/v0.6.1/testls-v0.6.1-x86_64-unknown-linux-musl.tar.gz"
+      sha256 "869a513fb48795b48b95cd3901b01c2cc9031ddf2f7364e9cd05efc4f346cd81"
     end
   end
 
