@@ -6,8 +6,10 @@ if `gh` is allowed); update it when a session ends.
 
 ## State (2026-11-10)
 
-- Latest release **v0.6.0** (web service: `testls serve`, REST/SSE,
-  browser UI). Previous v0.5.0 (release PR `chore/release-0.5.0`; tag,
+- Release **v0.6.1** prepared in PR `chore/release-0.6.1` (intrusive
+  checks, per-suite DH, JSON schema 2; kept 0.6.1 despite the breaking
+  schema/API change, maintainer's call). v0.6.0: web service (`testls serve`,
+  REST/SSE, browser UI). Previous v0.5.0 (release PR `chore/release-0.5.0`; tag,
   GitHub release, container image `ghcr.io/kjpopov/testls:0.5.0`,
   Homebrew/Scoop in-repo via the packages PR). v0.4.2 was deleted (web UI
   mistake); skip it in compare links.
@@ -309,9 +311,17 @@ a number.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-3. v0.6.1: Heartbleed, CCS injection, Ticketbleed and ROBOT are merged; prepare
-   the release when the maintainer chooses. Later backlog:
-   `--delay`, `--parallel`.
+3. v0.6.1: release PR open; after merge tag, check `release.yml`, then the
+   packages PR. Later backlog: `--delay`, `--parallel`.
+
+## Local Rust toolchain
+
+- `brew install rustup` (keg-only; Homebrew `cargo` has no components).
+  Per shell: `export PATH=/opt/homebrew/opt/rustup/bin:$PATH`.
+- Installed: stable with `llvm-tools`, and `1.97` (minimal) for the MSRV
+  check `cargo +1.97 check --workspace`.
+- Coverage misses: `cargo llvm-cov -p <crate> --lcov --output-path <file>`,
+  then list `DA:<line>,0` entries per file.
 
 ## Habits that worked
 
