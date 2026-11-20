@@ -151,8 +151,8 @@ timeout. Work on the next branch while a review runs.
   fresh checkout or `cargo test` fails in `testls-checks`.
 - Check `git branch --show-current` before committing when juggling stacked
   branches.
-- Run the MSRV check from AGENTS.md when `rustup` is available. Without it
-  (as on the current development Mac) `cargo +1.97` fails; say so in the PR
+- Run the MSRV check from AGENTS.md; it needs `rustup` (setup in
+  [HANDOFF.md](HANDOFF.md)). Without it `cargo +1.97` fails; say so in the PR
   and rely on the CI `msrv` job.
 - clippy `too_many_lines` (100) bites `main.rs` and long JSON test
   fixtures; extract helpers or compact expected JSON.

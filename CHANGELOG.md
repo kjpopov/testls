@@ -6,6 +6,8 @@ All notable changes to `testls` are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-20
+
 ### Added
 
 - Explicit `--intrusive` pre-handshake Heartbleed and CCS injection probes
@@ -339,7 +341,8 @@ First pre-release.
 - Target parsing for host, host:port, IPv4/IPv6 and URLs, plus `--sni`.
 - Release binaries for Linux (static musl), macOS and Windows.
 
-[Unreleased]: https://github.com/kjpopov/testls/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/kjpopov/testls/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/kjpopov/testls/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/kjpopov/testls/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kjpopov/testls/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/kjpopov/testls/compare/v0.4.1...v0.4.3

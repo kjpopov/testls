@@ -169,6 +169,7 @@ All behind the opt-in `--intrusive` flag (decision #97), one PR per check.
 - [x] CCS injection (PR #157)
 - [x] Ticketbleed (PR #158)
 - [x] ROBOT (`--intrusive`; decisions #101, #104)
+- [x] Released as v0.6.1
 
 ### v0.7 — Monitoring (sketch)
 - Target groups with owners, expiry dashboard, scheduled rescans with diff

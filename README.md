@@ -21,7 +21,7 @@ PCI DSS, CNSA 2.0).
 ## GitHub Action
 
 ```yaml
-- uses: kjpopov/testls@v0.6.0
+- uses: kjpopov/testls@v0.6.1
   with:
     args: --fail-on medium example.com
 ```
