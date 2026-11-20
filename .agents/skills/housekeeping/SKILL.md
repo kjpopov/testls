@@ -30,7 +30,7 @@ to committed history.
 
 1. Orient: `git rev-parse --show-toplevel`, `git branch --show-current`,
    `git remote -v`, `git worktree list`, `git stash list`.
-2. `git fetch --prune origin` before listing merged branches.
+2. `git fetch --prune --no-prune-tags origin` before listing merged branches.
 3. Enumerate candidates, check each, delete the safe ones.
 4. Report.
 

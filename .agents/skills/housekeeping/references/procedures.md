@@ -5,7 +5,7 @@ delete of a remote branch is recoverable but still costly.
 
 ## Merged remote branches
 
-List after `git fetch --prune origin`:
+List after `git fetch --prune --no-prune-tags origin`:
 
 ```sh
 git for-each-ref --merged=refs/remotes/origin/main \
@@ -30,7 +30,7 @@ git merge-base --is-ancestor "$oid" refs/remotes/origin/main && echo "BR $oid me
 
 Leases cover only the deleted refs, not `main`. Run this only if remote
 `main` is protected against force-pushes; if not, report and stop. Right
-before the push, `git fetch --prune origin` again and repeat the ancestry
+before the push, `git fetch --prune --no-prune-tags origin` again and repeat the ancestry
 check (or, for squash merges, the content check below) with the captured
 oids.
 
@@ -40,7 +40,7 @@ check is not deleted:
 ```sh
 git push --atomic origin --force-with-lease=refs/heads/BR1:<oid1> \
   --force-with-lease=refs/heads/BR2:<oid2> --delete BR1 BR2 ...
-git fetch --prune origin
+git fetch --prune --no-prune-tags origin
 ```
 
 A `stale info` rejection means the branch moved: recheck it before
@@ -50,7 +50,7 @@ Traps:
 
 - **Partial batch failure.** With `--atomic`, any rejected ref (for
   example `remote ref does not exist` or `stale info`) fails the whole
-  push. Run `git fetch --prune origin`, drop the refs that are gone or
+  push. Run `git fetch --prune --no-prune-tags origin`, drop the refs that are gone or
   moved, and push the verified survivors again. Without `--atomic`, read
   each ref's result line before retrying.
 - **Squash-merge blindness.** `--merged` misses squash-merged branches.
@@ -183,6 +183,8 @@ recoverable commits or other work.
 
 If `git push` to the push URL fails with `Permission denied (publickey)`
 or similar, check the agent (`ssh-add -l`) once, then retry the same push
-against the fetch URL inline (e.g. `git push https://... --delete ...`),
-but only if both URLs name the same repository (not a fork and upstream).
+against the fetch URL inline, keeping `--atomic` and every original lease
+(`git push --atomic https://... --force-with-lease=refs/heads/BR1:<oid1> ...
+--delete BR1 ...`), but only if both URLs name the same repository (not a
+fork and upstream).
 Do not edit `git config` or add keys; report the auth mismatch instead.
