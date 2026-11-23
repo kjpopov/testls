@@ -298,7 +298,16 @@ if `gh` is allowed); update it when a session ends.
   accepted DH suite twice (`KeyExchangeResult::dh_suites`, `dh_prime` removed;
   each keeps all distinct `primes`); Logjam/Raccoon/policy read all samples; JSON schema 2; decision #106.
 
-Next free decision: #107 (#99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
+- Issue triage (2026-11-23, #188/#189/#191/#192, all legitimate, owner-filed):
+  PR #194 (#192, BREACH/ALPACA wording, #107), PR #195 (#188, HTTP + STARTTLS
+  fuzz targets via `testls-probe/src/fuzzing.rs`, #108), PR #196 (#189,
+  CoreDNS on `127.0.0.1:15353/udp` + hidden `--mx-dns`, #109), PR #197 (#191,
+  OpenSSL fixtures as ROBOT negative controls, #110; maintainer chose this over
+  a 0.9.7a fixture). Each branch is from `e4d97f5`: after each merge rebase the
+  next and renumber PLAN decisions. `cargo deny check advisories` fails on
+  RUSTSEC-2026-0592 (`url`, nested `blob:` URLs) on clean main; no PR yet.
+
+Next free decision: #111 (#107-#110 in open PRs #194-#197; #99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
 #103 ROBOT fixtures, #104 ROBOT flow oracle, #105 fixture DNS, #106 DH suites). Recheck fresh `main` before assigning
 a number.
 
