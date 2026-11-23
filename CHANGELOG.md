@@ -14,6 +14,9 @@ All notable changes to `testls` are listed here. The format follows
 - Fuzz targets `http_header_parser` and `starttls_dialogue` for the probe
   crate's HTTP head and STARTTLS reply parsers, in the fuzz CI matrix
   ([#188](https://github.com/kjpopov/testls/issues/188)).
+- Integration test pinning the historical OpenSSL fixtures as ROBOT negative
+  controls; documented that ROBOT is validated positively only on wolfSSL.
+  Reported in #191.
 
 ### Changed
 

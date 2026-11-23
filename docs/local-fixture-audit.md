@@ -84,6 +84,10 @@ Historical vulnerability controls behaved as expected:
 ROBOT remained inconclusive on all three historical endpoints because the
 RSA vectors produced no reproducible alert difference. They are not positive
 ROBOT fixtures. Negative external results do not change that evidence limit.
+They are negative controls, pinned by the integration test
+`robot_openssl_negative_controls`; the flow oracle (decision #104, added after
+this audit) is inconclusive on them too. The positive ROBOT fixtures are the
+wolfSSL pair (#161, #175).
 
 The first pass could not scan the three historical OpenSSL endpoints
 (14435–14437) or SMTP (14425) with either tool. Independent TCP/TLS checks
