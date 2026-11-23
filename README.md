@@ -64,7 +64,7 @@ at least one, `2` the scan failed.
 - [JSON report format](docs/json-schema.md)
 - [Roadmap and decisions](docs/PLAN.md), [changelog](CHANGELOG.md)
 
-Next: a local web service with a REST API and browser UI (v0.6).
+Done: a local web service with a REST API and browser UI (`testls serve`, v0.6.0).
 
 ## Responsible use
 
