@@ -106,8 +106,15 @@ pub fn render(scans: &[Scan], success: bool) -> String {
     rules.sort_by_key(|(id, _)| *id);
     let results: Vec<Value> = scans
         .iter()
-        .flat_map(|scan| scan.findings.iter().map(move |f| (scan, f)))
-        .map(|(scan, f)| {
+        .flat_map(|scan| {
+            let mut seen: Vec<&str> = Vec::new();
+            scan.findings.iter().map(move |f| {
+                let occurrence = seen.iter().filter(|id| **id == f.id).count();
+                seen.push(&f.id);
+                (scan, f, occurrence)
+            })
+        })
+        .map(|(scan, f, occurrence)| {
             let index = rules
                 .iter()
                 .position(|(id, _)| *id == f.id)
@@ -123,7 +130,7 @@ pub fn render(scans: &[Scan], success: bool) -> String {
                     },
                 }],
                 "partialFingerprints": {
-                    "primaryLocationLineHash": fingerprint(&[&f.id, &scan.target, &f.message]),
+                    "primaryLocationLineHash": fingerprint(&[&f.id, &scan.target, &occurrence.to_string()]),
                 },
                 "properties": {
                     "severity": f.severity.as_str(),
@@ -272,6 +279,30 @@ mod tests {
         assert_eq!(fingerprint(&["a", "b"]), fingerprint(&["a", "b"]));
         assert_ne!(fingerprint(&["a", "b"]), fingerprint(&["ab", ""]));
         assert_eq!(fingerprint(&[]), "cbf29ce484222325");
+    }
+
+    /// The fingerprint ignores the message text, so rewording a finding does
+    /// not reopen its code-scanning alert, while repeated ids stay distinct.
+    #[test]
+    fn fingerprint_ignores_message() {
+        let hashes = |messages: [&str; 2]| -> Vec<Value> {
+            let findings = messages
+                .iter()
+                .map(|m| Finding::new("cipher.rc4", Severity::High, *m))
+                .collect();
+            let v: Value = serde_json::from_str(&render(&[scan("a.example:443", findings)], true))
+                .expect("valid JSON");
+            v["runs"][0]["results"]
+                .as_array()
+                .expect("results")
+                .iter()
+                .map(|r| r["partialFingerprints"]["primaryLocationLineHash"].clone())
+                .collect()
+        };
+        let old = hashes(["TLSv1.2 RC4 a", "TLSv1.2 RC4 b"]);
+        let new = hashes(["reworded a", "reworded b"]);
+        assert_eq!(old, new);
+        assert_ne!(old[0], old[1]);
     }
 
     /// Ids without a catalogue entry still get a usable rule.
