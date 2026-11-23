@@ -11,6 +11,9 @@ All notable changes to `testls` are listed here. The format follows
 - Integration test for `--mx` against the fixture DNS server (CoreDNS now
   published on `127.0.0.1:15353/udp`), using a hidden `--mx-dns` option.
   Reported in #189.
+- Fuzz targets `http_header_parser` and `starttls_dialogue` for the probe
+  crate's HTTP head and STARTTLS reply parsers, in the fuzz CI matrix
+  ([#188](https://github.com/kjpopov/testls/issues/188)).
 
 ### Changed
 

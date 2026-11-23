@@ -4,9 +4,10 @@ on:
   push:
     branches: [main, develop]
     paths:
-      # The root manifest supplies testls-wire's version, edition and lints.
+      # The root manifest supplies the crates' version, edition and lints.
       - Cargo.toml
       - crates/testls-wire/**
+      - crates/testls-probe/**
       - fuzz/**
       - .github/workflows/fuzz.yml
   pull_request:
@@ -24,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [record_stream, server_hello, certificate_list, server_key_exchange, ssl2_server_hello]
+        target: [record_stream, server_hello, certificate_list, server_key_exchange, ssl2_server_hello, http_header_parser, starttls_dialogue]
     runs-on: ubuntu-latest
     env:
       TARGET: ${{ matrix.target }}
@@ -38,14 +39,15 @@ jobs:
       - name: Check for relevant changes
         id: changes
         # Pull requests always run this job so it can be a required check, but
-        # skip fuzzing unless they touch the root manifest (testls-wire's
-        # version, edition and lints), testls-wire, fuzz/ or this workflow.
+        # skip fuzzing unless they touch the root manifest (the crates'
+        # version, edition and lints), testls-wire, testls-probe, fuzz/ or
+        # this workflow.
         # Pushes and scheduled runs always fuzz.
         env:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
         run: |
-          if [ "$EVENT" != pull_request ] || ! git diff --quiet "origin/$BASE_REF...HEAD" -- Cargo.toml crates/testls-wire/ fuzz/ .github/workflows/fuzz.yml; then
+          if [ "$EVENT" != pull_request ] || ! git diff --quiet "origin/$BASE_REF...HEAD" -- Cargo.toml crates/testls-wire/ crates/testls-probe/ fuzz/ .github/workflows/fuzz.yml; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"

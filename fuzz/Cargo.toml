@@ -1,4 +1,4 @@
-# Fuzz targets for the wire parsers; see fuzz/README.md. Not a workspace
+# Fuzz targets for the wire and probe parsers; see fuzz/README.md. Not a workspace
 # member because cargo-fuzz needs a nightly toolchain.
 [package]
 name = "testls-fuzz"
@@ -12,7 +12,9 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+testls-probe = { path = "../crates/testls-probe" }
 testls-wire = { path = "../crates/testls-wire" }
+tokio = { version = "1.47", default-features = false, features = ["rt"] }
 
 [[bin]]
 name = "record_stream"
@@ -45,6 +47,20 @@ bench = false
 [[bin]]
 name = "ssl2_server_hello"
 path = "fuzz_targets/ssl2_server_hello.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_header_parser"
+path = "fuzz_targets/http_header_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "starttls_dialogue"
+path = "fuzz_targets/starttls_dialogue.rs"
 test = false
 doc = false
 bench = false
