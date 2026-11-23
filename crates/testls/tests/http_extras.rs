@@ -145,7 +145,10 @@ fn json_reports_http_extras() {
         .find(|b| b["id"] == "breach")
         .expect("breach verdict");
     assert_eq!(breach["status"], "vulnerable", "{breach}");
-    assert_eq!(breach["detail"], "HTTP compression: gzip");
+    assert_eq!(
+        breach["detail"],
+        "compression enabled (gzip), review BREACH risk"
+    );
     let finding = v["findings"]
         .as_array()
         .expect("findings")

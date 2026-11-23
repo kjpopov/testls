@@ -540,14 +540,14 @@ const EXPLANATIONS: &[Explanation] = &[
     ),
     entry(
         "vuln.breach",
-        "BREACH: HTTP responses are compressed",
-        "Compressing response bodies leaks the length of secrets, such as CSRF tokens, that appear next to attacker-reflected input. Only the front page is checked; disable compression for pages with secrets, or mask tokens per response.",
+        "BREACH: HTTP compression enabled, review risk",
+        "Compression alone is not a confirmed attack, only a precondition: compressing response bodies leaks the length of secrets, such as CSRF tokens, that appear next to attacker-reflected input. Only the front page is checked; disable compression for pages with secrets, or mask tokens per response.",
         "RFC 7457 §2.6, breachattack.com",
     ),
     entry(
         "vuln.alpaca",
-        "ALPACA: unknown ALPN protocols are accepted",
-        "A server that completes the handshake for an ALPN protocol it does not speak helps an attacker redirect traffic between services that share a certificate. Refuse unknown protocols with no_application_protocol and keep certificates specific to one service.",
+        "ALPACA: unknown ALPN protocols accepted, review risk",
+        "Accepting an ALPN protocol the server does not speak is a precondition, not a confirmed attack: it can help an attacker redirect traffic between services that share a certificate. Refuse unknown protocols with no_application_protocol and keep certificates specific to one service.",
         "RFC 7301 §3.2, alpaca-attack.com",
     ),
     entry(

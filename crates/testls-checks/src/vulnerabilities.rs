@@ -444,7 +444,9 @@ fn feature_vuln(
 /// response bodies can leak through the compressed length (as CRIME does for
 /// TLS compression). Whether a body mixes secrets with attacker-chosen input
 /// cannot be seen from outside, so a compressed reply is reported as a
-/// potential issue. RFC 7457 §2.6 covers compression side channels.
+/// potential issue and the detail says so (compression enabled, review
+/// risk) instead of claiming a confirmed attack. RFC 7457 §2.6 covers
+/// compression side channels.
 fn breach(inputs: &Inputs) -> Vulnerability {
     let (id, name, finding) = ("breach", "BREACH", "vuln.breach");
     let Some(http) = inputs.http else {
@@ -466,7 +468,10 @@ fn breach(inputs: &Inputs) -> Vulnerability {
             finding,
         );
     }
-    let detail = format!("HTTP compression: {}", codings.join(", "));
+    let detail = format!(
+        "compression enabled ({}), review BREACH risk",
+        codings.join(", ")
+    );
     vuln(id, name, VulnStatus::Vulnerable, detail, finding)
 }
 
@@ -604,7 +609,10 @@ fn alpaca(inputs: &Inputs) -> Vulnerability {
             VulnStatus::NotTested,
             "cipher suites not enumerated for the highest offered version",
         ),
-        Some(false) => (VulnStatus::Vulnerable, "unknown ALPN protocol accepted"),
+        Some(false) => (
+            VulnStatus::Vulnerable,
+            "unknown ALPN protocol accepted, review ALPACA risk",
+        ),
         Some(true) => (VulnStatus::NotVulnerable, "unknown ALPN protocol refused"),
     };
     vuln(id, name, status, detail, finding)
@@ -1223,10 +1231,16 @@ mod tests {
             ("Content-Encoding", "br"),
         ])));
         assert_eq!(v.status, VulnStatus::Vulnerable);
-        assert_eq!(v.detail, "HTTP compression: gzip, br");
+        assert_eq!(
+            v.detail,
+            "compression enabled (gzip, br), review BREACH risk"
+        );
         assert_eq!(v.finding, Some("vuln.breach"));
         let findings = vulnerability_findings(&[v]);
-        assert_eq!(findings[0].message, "BREACH: HTTP compression: gzip, br");
+        assert_eq!(
+            findings[0].message,
+            "BREACH: compression enabled (gzip, br), review BREACH risk"
+        );
     }
 
     /// Opossum: one accepting port is enough; an unanswered probe leaves a
