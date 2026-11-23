@@ -29,6 +29,7 @@ services:
       context: .
       dockerfile: Dockerfile.coredns
     image: localhost/testls-coredns
+    ports: ["127.0.0.1:15353:53/udp"]
     networks:
       fixtures:
         ipv4_address: 10.253.53.53
