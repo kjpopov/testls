@@ -50,7 +50,7 @@ jobs:
         # not touch dependencies; it still fails scheduled and branch runs, and
         # pull requests that change Cargo.toml or Cargo.lock.
         continue-on-error: ${{ matrix.checks == 'advisories' && github.event_name == 'pull_request' && steps.deps.outputs.changed != 'true' }}
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        uses: EmbarkStudios/cargo-deny-action@70f81531115945ba6eb6b941ec9d39d063438eb9 # v2.1.2
         with:
           command: check ${{ matrix.checks }}
       # The fuzz crate is a separate workspace with its own lockfile. It is a
@@ -60,7 +60,7 @@ jobs:
         id: deny_fuzz
         if: ${{ !cancelled() }}
         continue-on-error: ${{ matrix.checks == 'advisories' && github.event_name == 'pull_request' && steps.deps.outputs.changed != 'true' }}
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        uses: EmbarkStudios/cargo-deny-action@70f81531115945ba6eb6b941ec9d39d063438eb9 # v2.1.2
         with:
           manifest-path: fuzz/Cargo.toml
           command: check ${{ matrix.checks }}
