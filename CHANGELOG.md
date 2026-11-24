@@ -12,6 +12,10 @@ All notable changes to `testls` are listed here. The format follows
   published on `127.0.0.1:15353/udp`), using a hidden `--mx-dns` option.
   Reported in #189.
 
+### Fixed
+
+- Update transitive `url` to 2.5.9 to address RUSTSEC-2026-0592.
+
 ## [0.6.1] - 2026-11-20
 
 ### Added
