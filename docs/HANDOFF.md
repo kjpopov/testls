@@ -303,11 +303,12 @@ if `gh` is allowed); update it when a session ends.
   fuzz targets via `testls-probe/src/fuzzing.rs`, #108), PR #196 (#189,
   CoreDNS on `127.0.0.1:15353/udp` + hidden `--mx-dns`, #109), PR #197 (#191,
   OpenSSL fixtures as ROBOT negative controls, #110; maintainer chose this over
-  a 0.9.7a fixture). Each branch is from `e4d97f5`: after each merge rebase the
-  next and renumber PLAN decisions. `cargo deny check advisories` fails on
+  a 0.9.7a fixture). #196 merged 2026-11-24 (`2f43d83`, #189 closed); the
+  others were rebased on it. #194 also fixes the SARIF fingerprint to ignore
+  the message (#111, CodeRabbit review). `cargo deny check advisories` fails on
   RUSTSEC-2026-0592 (`url`, nested `blob:` URLs) on clean main; no PR yet.
 
-Next free decision: #111 (#107-#110 in open PRs #194-#197; #99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
+Next free decision: #112 (#107, #111 in open PR #194, #108 in #195, #110 in #197, #109 merged; #99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
 #103 ROBOT fixtures, #104 ROBOT flow oracle, #105 fixture DNS, #106 DH suites). Recheck fresh `main` before assigning
 a number.
 
