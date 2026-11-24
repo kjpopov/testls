@@ -307,10 +307,13 @@ if `gh` is allowed); update it when a session ends.
   others were rebased on it. #194 also fixes the SARIF fingerprint to ignore
   the message (#111, optional `Finding::key`, CodeRabbit review). Local
   CodeRabbit reviews (2026-11-24): #195 and #194 clean; #197 had one minor
-  (blanket constant-time claim; OpenSSL 1.0.2 had CVE-2022-4304), fixed. `cargo deny check advisories` fails on
-  RUSTSEC-2026-0592 (`url`, nested `blob:` URLs) on clean main; no PR yet.
+  (blanket constant-time claim; OpenSSL 1.0.2 had CVE-2022-4304), fixed.
+  `cargo deny check advisories` failed on main on RUSTSEC-2026-0592 (`url`
+  2.5.8, nested `blob:` URLs, red since 2026-11-23, not caused by #196); fixed
+  by PR #198 (`url` 2.5.9, lockfile only), merged. #194 merged; #195 and #197
+  rebased on it (2026-11-24).
 
-Next free decision: #112 (#107, #111 in open PR #194, #108 in #195, #110 in #197, #109 merged; #99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
+Next free decision: #112 (#107, #111 in #194 merged, #108 in open PR #195, #110 in open PR #197, #109 merged; #99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
 #103 ROBOT fixtures, #104 ROBOT flow oracle, #105 fixture DNS, #106 DH suites). Recheck fresh `main` before assigning
 a number.
 
