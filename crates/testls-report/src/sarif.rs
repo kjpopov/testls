@@ -106,15 +106,8 @@ pub fn render(scans: &[Scan], success: bool) -> String {
     rules.sort_by_key(|(id, _)| *id);
     let results: Vec<Value> = scans
         .iter()
-        .flat_map(|scan| {
-            let mut seen: Vec<&str> = Vec::new();
-            scan.findings.iter().map(move |f| {
-                let occurrence = seen.iter().filter(|id| **id == f.id).count();
-                seen.push(&f.id);
-                (scan, f, occurrence)
-            })
-        })
-        .map(|(scan, f, occurrence)| {
+        .flat_map(|scan| scan.findings.iter().map(move |f| (scan, f)))
+        .map(|(scan, f)| {
             let index = rules
                 .iter()
                 .position(|(id, _)| *id == f.id)
@@ -130,7 +123,7 @@ pub fn render(scans: &[Scan], success: bool) -> String {
                     },
                 }],
                 "partialFingerprints": {
-                    "primaryLocationLineHash": fingerprint(&[&f.id, &scan.target, &occurrence.to_string()]),
+                    "primaryLocationLineHash": fingerprint(&[&f.id, &scan.target, f.identity()]),
                 },
                 "properties": {
                     "severity": f.severity.as_str(),
@@ -281,15 +274,12 @@ mod tests {
         assert_eq!(fingerprint(&[]), "cbf29ce484222325");
     }
 
-    /// The fingerprint ignores the message text, so rewording a finding does
-    /// not reopen its code-scanning alert, while repeated ids stay distinct.
+    /// A pinned key keeps the fingerprint when the message is reworded, a
+    /// finding without a key hashes its message, and a finding's fingerprint
+    /// does not depend on its siblings (removal or reordering).
     #[test]
-    fn fingerprint_ignores_message() {
-        let hashes = |messages: [&str; 2]| -> Vec<Value> {
-            let findings = messages
-                .iter()
-                .map(|m| Finding::new("cipher.rc4", Severity::High, *m))
-                .collect();
+    fn fingerprint_uses_identity() {
+        let hashes = |findings: Vec<Finding>| -> Vec<Value> {
             let v: Value = serde_json::from_str(&render(&[scan("a.example:443", findings)], true))
                 .expect("valid JSON");
             v["runs"][0]["results"]
@@ -299,10 +289,16 @@ mod tests {
                 .map(|r| r["partialFingerprints"]["primaryLocationLineHash"].clone())
                 .collect()
         };
-        let old = hashes(["TLSv1.2 RC4 a", "TLSv1.2 RC4 b"]);
-        let new = hashes(["reworded a", "reworded b"]);
-        assert_eq!(old, new);
-        assert_ne!(old[0], old[1]);
+        let rc4 = |m: &str| Finding::new("cipher.rc4", Severity::High, m);
+        let old = hashes(vec![rc4("old text")]);
+        let reworded = hashes(vec![rc4("new text").with_key("old text")]);
+        assert_eq!(old, reworded);
+        assert_ne!(old, hashes(vec![rc4("new text")]));
+
+        let both = hashes(vec![rc4("suite a"), rc4("suite b")]);
+        assert_ne!(both[0], both[1]);
+        assert_eq!(hashes(vec![rc4("suite b")])[0], both[1]);
+        assert_eq!(hashes(vec![rc4("suite b"), rc4("suite a")])[1], both[0]);
     }
 
     /// Ids without a catalogue entry still get a usable rule.

@@ -127,6 +127,9 @@ pub struct Finding {
     pub severity: Severity,
     /// Human-readable summary.
     pub message: String,
+    /// Text that identifies the finding across runs, when it differs from
+    /// `message` (see [`Finding::with_key`]).
+    pub key: Option<String>,
 }
 
 impl Finding {
@@ -137,7 +140,23 @@ impl Finding {
             id: id.into(),
             severity,
             message: message.into(),
+            key: None,
         }
+    }
+
+    /// Pin the text that identifies this finding across runs. Set it to the
+    /// old message when a finding is reworded so tools that track findings
+    /// (SARIF code scanning) keep their history.
+    #[must_use]
+    pub fn with_key(mut self, key: impl Into<String>) -> Self {
+        self.key = Some(key.into());
+        self
+    }
+
+    /// Text that identifies the finding: the pinned key, else the message.
+    #[must_use]
+    pub fn identity(&self) -> &str {
+        self.key.as_deref().unwrap_or(&self.message)
     }
 }
 

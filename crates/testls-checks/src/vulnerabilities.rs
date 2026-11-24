@@ -652,6 +652,22 @@ fn opossum(inputs: &Inputs) -> Vulnerability {
     vuln(id, name, status, detail, finding)
 }
 
+/// Message the reworded BREACH and ALPACA findings had before #192, so
+/// their SARIF fingerprints (and code-scanning alerts) stay the same.
+fn legacy_key(v: &Vulnerability) -> Option<String> {
+    match v.finding? {
+        "vuln.alpaca" => Some("ALPACA: unknown ALPN protocol accepted".to_owned()),
+        "vuln.breach" => {
+            let codings = v
+                .detail
+                .strip_prefix("compression enabled (")?
+                .strip_suffix("), review BREACH risk")?;
+            Some(format!("BREACH: HTTP compression: {codings}"))
+        }
+        _ => None,
+    }
+}
+
 /// Findings for vulnerable entries not already reported by another check.
 #[must_use]
 pub fn vulnerability_findings(vulnerabilities: &[Vulnerability]) -> Vec<Finding> {
@@ -660,11 +676,11 @@ pub fn vulnerability_findings(vulnerabilities: &[Vulnerability]) -> Vec<Finding>
         .filter_map(|v| {
             let id = v.finding?;
             let severity = severity(id)?;
-            Some(Finding::new(
-                id,
-                severity,
-                format!("{}: {}", v.name, v.detail),
-            ))
+            let finding = Finding::new(id, severity, format!("{}: {}", v.name, v.detail));
+            Some(match legacy_key(v) {
+                Some(key) => finding.with_key(key),
+                None => finding,
+            })
         })
         .collect()
 }
@@ -1241,6 +1257,30 @@ mod tests {
             findings[0].message,
             "BREACH: compression enabled (gzip, br), review BREACH risk"
         );
+        assert_eq!(findings[0].identity(), "BREACH: HTTP compression: gzip, br");
+    }
+
+    /// Reworded findings keep their pre-#192 identity; others use the message.
+    #[test]
+    fn legacy_identity() {
+        let item = |id, finding, detail: &str| Vulnerability {
+            id,
+            name: "X",
+            status: VulnStatus::Vulnerable,
+            detail: detail.to_owned(),
+            finding: Some(finding),
+        };
+        let alpaca = vulnerability_findings(&[item(
+            "alpaca",
+            "vuln.alpaca",
+            "unknown ALPN protocol accepted, review ALPACA risk",
+        )]);
+        assert_eq!(
+            alpaca[0].identity(),
+            "ALPACA: unknown ALPN protocol accepted"
+        );
+        let robot = vulnerability_findings(&[item("robot", "vuln.robot", "oracle")]);
+        assert_eq!(robot[0].identity(), robot[0].message);
     }
 
     /// Opossum: one accepting port is enough; an unanswered probe leaves a

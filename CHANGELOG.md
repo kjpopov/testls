@@ -19,9 +19,9 @@ All notable changes to `testls` are listed here. The format follows
   describe a precondition, not a confirmed attack. Status, severity and
   finding ids are unchanged
   ([#192](https://github.com/kjpopov/testls/issues/192)).
-- SARIF `primaryLocationLineHash` no longer includes the finding message, so
-  rewording a finding does not reopen its code-scanning alert. Alerts are
-  re-created once by this release.
+- Reworded BREACH and ALPACA findings keep their SARIF
+  `primaryLocationLineHash`, so existing code-scanning alerts stay open
+  (`Finding::with_key` pins the pre-rewording text for future rewordings).
 
 ### Fixed
 
