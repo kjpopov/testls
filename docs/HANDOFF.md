@@ -305,7 +305,9 @@ if `gh` is allowed); update it when a session ends.
   OpenSSL fixtures as ROBOT negative controls, #110; maintainer chose this over
   a 0.9.7a fixture). #196 merged 2026-11-24 (`2f43d83`, #189 closed); the
   others were rebased on it. #194 also fixes the SARIF fingerprint to ignore
-  the message (#111, CodeRabbit review). `cargo deny check advisories` fails on
+  the message (#111, optional `Finding::key`, CodeRabbit review). Local
+  CodeRabbit reviews (2026-11-24): #195 and #194 clean; #197 had one minor
+  (blanket constant-time claim; OpenSSL 1.0.2 had CVE-2022-4304), fixed. `cargo deny check advisories` fails on
   RUSTSEC-2026-0592 (`url`, nested `blob:` URLs) on clean main; no PR yet.
 
 Next free decision: #112 (#107, #111 in open PR #194, #108 in #195, #110 in #197, #109 merged; #99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
