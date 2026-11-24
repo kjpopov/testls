@@ -33,7 +33,9 @@ address a runtime's port forwarder connects from, get a generated
 `ip-a-b-c-d.peer.fixtures.test` PTR record and a matching A record. Other
 names are refused, so no query leaves the network. OpenSSL `s_server`
 and Postfix look up each client's name; without these records every
-connection waited for the host resolver to time out (#163). Check by hand:
+connection waited for the host resolver to time out (#163). The `dns`
+service also listens on `127.0.0.1:15353/udp`; the `mx_lookup` test points
+the hidden `--mx-dns` option at it (#189). Check by hand:
 
 ```sh
 podman exec servers-smtp-1 getent hosts 10.253.53.1 smtp.fixtures.test

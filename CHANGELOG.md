@@ -6,6 +6,12 @@ All notable changes to `testls` are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Integration test for `--mx` against the fixture DNS server (CoreDNS now
+  published on `127.0.0.1:15353/udp`), using a hidden `--mx-dns` option.
+  Reported in #189.
+
 ## [0.6.1] - 2026-11-20
 
 ### Added

@@ -154,6 +154,11 @@ struct Cli {
     #[arg(long)]
     mx: bool,
 
+    /// Ask this DNS server (UDP) for MX records instead of the system
+    /// resolver; for the integration tests' fixture DNS.
+    #[arg(long, hide = true, value_name = "ADDR")]
+    mx_dns: Option<std::net::SocketAddr>,
+
     /// Read suppressions from this TOML file instead of `.testls.toml` in
     /// the working directory (which is optional).
     #[arg(long, value_name = "FILE")]
@@ -622,8 +627,12 @@ async fn mail_hosts(
     if !cli.mx {
         return Ok((targets, Vec::new()));
     }
-    let resolver =
-        MxResolver::system(Duration::from_secs(cli.connect_timeout)).map_err(|e| e.to_string())?;
+    let timeout = Duration::from_secs(cli.connect_timeout);
+    let resolver = match cli.mx_dns {
+        Some(server) => MxResolver::with_server(server, timeout),
+        None => MxResolver::system(timeout),
+    }
+    .map_err(|e| e.to_string())?;
     let mut hosts = Vec::new();
     let mut failed = Vec::new();
     for target in &targets {

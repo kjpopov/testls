@@ -60,10 +60,13 @@ impl MxResolver {
         Ok(Self { inner })
     }
 
-    /// Resolver that asks only the DNS server at `server` over UDP; for
-    /// tests against a fake server.
-    #[cfg(test)]
-    fn with_server(server: std::net::SocketAddr, timeout: Duration) -> Self {
+    /// Resolver that asks only the DNS server at `server` over UDP, without
+    /// retries, caching or the hosts file; for tests against a fake or
+    /// fixture server.
+    ///
+    /// # Errors
+    /// Returns [`MxError::Config`] when the resolver cannot be built.
+    pub fn with_server(server: std::net::SocketAddr, timeout: Duration) -> Result<Self, MxError> {
         use hickory_resolver::config::{NameServerConfig, ResolveHosts, ResolverConfig};
         use hickory_resolver::net::runtime::TokioRuntimeProvider;
 
@@ -78,9 +81,10 @@ impl MxResolver {
         builder.options_mut().attempts = 1;
         builder.options_mut().cache_size = 0;
         builder.options_mut().use_hosts_file = ResolveHosts::Never;
-        Self {
-            inner: builder.build().expect("valid test resolver"),
-        }
+        let inner = builder
+            .build()
+            .map_err(|e| MxError::Config(e.to_string()))?;
+        Ok(Self { inner })
     }
 
     /// Mail exchangers of `domain`, most preferred first: sorted by
@@ -203,7 +207,7 @@ mod tests {
     /// `answers`, checking the query that was sent.
     async fn lookup(code: ResponseCode, answers: Vec<RData>) -> Result<Vec<String>, MxError> {
         let (addr, task) = server(code, answers).await;
-        let resolver = MxResolver::with_server(addr, Duration::from_secs(2));
+        let resolver = MxResolver::with_server(addr, Duration::from_secs(2)).unwrap();
         let result = resolver.lookup("Example.COM").await;
         let query = task.await.unwrap();
         assert_eq!(query.name().to_lowercase(), name("example.com."));
