@@ -1030,6 +1030,29 @@ fn heartbleed_server() {
     assert_eq!(attack.code, 1);
 }
 
+/// Historical OpenSSL releases are ROBOT negative controls (#191): they
+/// answer every malformed RSA block alike (alert and flow), so ROBOT stays
+/// not tested and never becomes a finding. Positive ROBOT evidence comes
+/// only from the wolfSSL fixtures.
+#[test]
+#[ignore = "needs tests/servers running"]
+fn robot_openssl_negative_controls() {
+    for addr in ["127.0.0.1:14435", "127.0.0.1:14436", "127.0.0.1:14437"] {
+        let scan = scan(addr, &["--profile", "quick", "--intrusive"]);
+        let robot = scan.line("ROBOT");
+        assert!(robot.contains("not tested"), "{addr}: {robot}");
+        assert!(
+            robot.contains("no reproducible RSA padding alert difference"),
+            "{addr}: {robot}"
+        );
+        assert!(
+            robot.contains("no reproducible RSA padding flow difference"),
+            "{addr}: {robot}"
+        );
+        assert!(!scan.has("[vuln.robot]"), "{addr}: {}", scan.stdout);
+    }
+}
+
 /// OpenSSL 1.0.1g drops the malformed request; silence is not a safe verdict.
 #[test]
 #[ignore = "needs tests/servers running"]
