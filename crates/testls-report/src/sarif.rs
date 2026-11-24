@@ -123,7 +123,7 @@ pub fn render(scans: &[Scan], success: bool) -> String {
                     },
                 }],
                 "partialFingerprints": {
-                    "primaryLocationLineHash": fingerprint(&[&f.id, &scan.target, &f.message]),
+                    "primaryLocationLineHash": fingerprint(&[&f.id, &scan.target, f.identity()]),
                 },
                 "properties": {
                     "severity": f.severity.as_str(),
@@ -272,6 +272,33 @@ mod tests {
         assert_eq!(fingerprint(&["a", "b"]), fingerprint(&["a", "b"]));
         assert_ne!(fingerprint(&["a", "b"]), fingerprint(&["ab", ""]));
         assert_eq!(fingerprint(&[]), "cbf29ce484222325");
+    }
+
+    /// A pinned key keeps the fingerprint when the message is reworded, a
+    /// finding without a key hashes its message, and a finding's fingerprint
+    /// does not depend on its siblings (removal or reordering).
+    #[test]
+    fn fingerprint_uses_identity() {
+        let hashes = |findings: Vec<Finding>| -> Vec<Value> {
+            let v: Value = serde_json::from_str(&render(&[scan("a.example:443", findings)], true))
+                .expect("valid JSON");
+            v["runs"][0]["results"]
+                .as_array()
+                .expect("results")
+                .iter()
+                .map(|r| r["partialFingerprints"]["primaryLocationLineHash"].clone())
+                .collect()
+        };
+        let rc4 = |m: &str| Finding::new("cipher.rc4", Severity::High, m);
+        let old = hashes(vec![rc4("old text")]);
+        let reworded = hashes(vec![rc4("new text").with_key("old text")]);
+        assert_eq!(old, reworded);
+        assert_ne!(old, hashes(vec![rc4("new text")]));
+
+        let both = hashes(vec![rc4("suite a"), rc4("suite b")]);
+        assert_ne!(both[0], both[1]);
+        assert_eq!(hashes(vec![rc4("suite b")])[0], both[1]);
+        assert_eq!(hashes(vec![rc4("suite b"), rc4("suite a")])[1], both[0]);
     }
 
     /// Ids without a catalogue entry still get a usable rule.

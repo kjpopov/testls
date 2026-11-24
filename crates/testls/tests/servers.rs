@@ -117,7 +117,7 @@ fn legacy_server() {
     );
     assert_eq!(
         s.line("ALPACA"),
-        "ALPACA                         vulnerable     unknown ALPN protocol accepted [vuln.alpaca]"
+        "ALPACA                         vulnerable     unknown ALPN protocol accepted, review ALPACA risk [vuln.alpaca]"
     );
     assert_eq!(
         s.line("ClientHello tolerance"),

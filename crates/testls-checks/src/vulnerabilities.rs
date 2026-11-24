@@ -444,7 +444,9 @@ fn feature_vuln(
 /// response bodies can leak through the compressed length (as CRIME does for
 /// TLS compression). Whether a body mixes secrets with attacker-chosen input
 /// cannot be seen from outside, so a compressed reply is reported as a
-/// potential issue. RFC 7457 §2.6 covers compression side channels.
+/// potential issue and the detail says so (compression enabled, review
+/// risk) instead of claiming a confirmed attack. RFC 7457 §2.6 covers
+/// compression side channels.
 fn breach(inputs: &Inputs) -> Vulnerability {
     let (id, name, finding) = ("breach", "BREACH", "vuln.breach");
     let Some(http) = inputs.http else {
@@ -466,7 +468,10 @@ fn breach(inputs: &Inputs) -> Vulnerability {
             finding,
         );
     }
-    let detail = format!("HTTP compression: {}", codings.join(", "));
+    let detail = format!(
+        "compression enabled ({}), review BREACH risk",
+        codings.join(", ")
+    );
     vuln(id, name, VulnStatus::Vulnerable, detail, finding)
 }
 
@@ -604,7 +609,10 @@ fn alpaca(inputs: &Inputs) -> Vulnerability {
             VulnStatus::NotTested,
             "cipher suites not enumerated for the highest offered version",
         ),
-        Some(false) => (VulnStatus::Vulnerable, "unknown ALPN protocol accepted"),
+        Some(false) => (
+            VulnStatus::Vulnerable,
+            "unknown ALPN protocol accepted, review ALPACA risk",
+        ),
         Some(true) => (VulnStatus::NotVulnerable, "unknown ALPN protocol refused"),
     };
     vuln(id, name, status, detail, finding)
@@ -644,6 +652,22 @@ fn opossum(inputs: &Inputs) -> Vulnerability {
     vuln(id, name, status, detail, finding)
 }
 
+/// Message the reworded BREACH and ALPACA findings had before #192, so
+/// their SARIF fingerprints (and code-scanning alerts) stay the same.
+fn legacy_key(v: &Vulnerability) -> Option<String> {
+    match v.finding? {
+        "vuln.alpaca" => Some("ALPACA: unknown ALPN protocol accepted".to_owned()),
+        "vuln.breach" => {
+            let codings = v
+                .detail
+                .strip_prefix("compression enabled (")?
+                .strip_suffix("), review BREACH risk")?;
+            Some(format!("BREACH: HTTP compression: {codings}"))
+        }
+        _ => None,
+    }
+}
+
 /// Findings for vulnerable entries not already reported by another check.
 #[must_use]
 pub fn vulnerability_findings(vulnerabilities: &[Vulnerability]) -> Vec<Finding> {
@@ -652,11 +676,11 @@ pub fn vulnerability_findings(vulnerabilities: &[Vulnerability]) -> Vec<Finding>
         .filter_map(|v| {
             let id = v.finding?;
             let severity = severity(id)?;
-            Some(Finding::new(
-                id,
-                severity,
-                format!("{}: {}", v.name, v.detail),
-            ))
+            let finding = Finding::new(id, severity, format!("{}: {}", v.name, v.detail));
+            Some(match legacy_key(v) {
+                Some(key) => finding.with_key(key),
+                None => finding,
+            })
         })
         .collect()
 }
@@ -1223,10 +1247,40 @@ mod tests {
             ("Content-Encoding", "br"),
         ])));
         assert_eq!(v.status, VulnStatus::Vulnerable);
-        assert_eq!(v.detail, "HTTP compression: gzip, br");
+        assert_eq!(
+            v.detail,
+            "compression enabled (gzip, br), review BREACH risk"
+        );
         assert_eq!(v.finding, Some("vuln.breach"));
         let findings = vulnerability_findings(&[v]);
-        assert_eq!(findings[0].message, "BREACH: HTTP compression: gzip, br");
+        assert_eq!(
+            findings[0].message,
+            "BREACH: compression enabled (gzip, br), review BREACH risk"
+        );
+        assert_eq!(findings[0].identity(), "BREACH: HTTP compression: gzip, br");
+    }
+
+    /// Reworded findings keep their pre-#192 identity; others use the message.
+    #[test]
+    fn legacy_identity() {
+        let item = |id, finding, detail: &str| Vulnerability {
+            id,
+            name: "X",
+            status: VulnStatus::Vulnerable,
+            detail: detail.to_owned(),
+            finding: Some(finding),
+        };
+        let alpaca = vulnerability_findings(&[item(
+            "alpaca",
+            "vuln.alpaca",
+            "unknown ALPN protocol accepted, review ALPACA risk",
+        )]);
+        assert_eq!(
+            alpaca[0].identity(),
+            "ALPACA: unknown ALPN protocol accepted"
+        );
+        let robot = vulnerability_findings(&[item("robot", "vuln.robot", "oracle")]);
+        assert_eq!(robot[0].identity(), robot[0].message);
     }
 
     /// Opossum: one accepting port is enough; an unanswered probe leaves a

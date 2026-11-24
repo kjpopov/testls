@@ -12,6 +12,17 @@ All notable changes to `testls` are listed here. The format follows
   published on `127.0.0.1:15353/udp`), using a hidden `--mx-dns` option.
   Reported in #189.
 
+### Changed
+
+- BREACH and ALPACA details now read "compression enabled (...), review BREACH
+  risk" and "unknown ALPN protocol accepted, review ALPACA risk"; both
+  describe a precondition, not a confirmed attack. Status, severity and
+  finding ids are unchanged
+  ([#192](https://github.com/kjpopov/testls/issues/192)).
+- Reworded BREACH and ALPACA findings keep their SARIF
+  `primaryLocationLineHash`, so existing code-scanning alerts stay open
+  (`Finding::with_key` pins the pre-rewording text for future rewordings).
+
 ### Fixed
 
 - Update transitive `url` to 2.5.9 to address RUSTSEC-2026-0592.
