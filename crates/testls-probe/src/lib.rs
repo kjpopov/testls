@@ -6,6 +6,8 @@ mod ciphers;
 mod details;
 mod features;
 mod fetch;
+#[doc(hidden)]
+pub mod fuzzing;
 mod groups;
 mod heartbleed;
 pub mod hello;

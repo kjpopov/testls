@@ -4,10 +4,15 @@
 use std::fmt;
 use std::io;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::ProbeError;
+
+/// Byte stream a dialogue runs on: a TCP stream, or an in-memory one when
+/// fuzzing.
+pub(crate) trait Io: AsyncRead + AsyncWrite + Unpin {}
+
+impl<T: AsyncRead + AsyncWrite + Unpin> Io for T {}
 
 /// Largest server reply accepted during the dialogue, in bytes.
 const MAX_REPLY: usize = 64 * 1024;
@@ -89,9 +94,9 @@ impl Starttls {
     /// offer STARTTLS, sends a malformed or oversized reply, closes the
     /// connection, or sends bytes after its final reply (which would be
     /// injected into the TLS stream).
-    pub(crate) async fn upgrade(
+    pub(crate) async fn upgrade<S: Io>(
         self,
-        stream: &mut TcpStream,
+        stream: &mut S,
         early: Vec<u8>,
         host: &str,
     ) -> Result<(), ProbeError> {
@@ -133,7 +138,7 @@ fn error(msg: String) -> ProbeError {
 
 /// SMTP dialogue (RFC 5321 §4.2, RFC 3207 §4): greeting, `EHLO`, check
 /// the `STARTTLS` keyword, `STARTTLS`, expect 220.
-async fn smtp(stream: &mut TcpStream, mut reader: Replies) -> Result<(), ProbeError> {
+async fn smtp<S: Io>(stream: &mut S, mut reader: Replies) -> Result<(), ProbeError> {
     let greeting = reader.smtp(stream).await?;
     expect(&greeting, 220, "greeting")?;
     send(stream, b"EHLO testls.invalid\r\n").await?;
@@ -155,7 +160,7 @@ async fn smtp(stream: &mut TcpStream, mut reader: Replies) -> Result<(), ProbeEr
 
 /// IMAP dialogue (RFC 9051 §6.1.1, §6.2.1, §7.1): `* OK` greeting,
 /// `CAPABILITY` must list `STARTTLS`, then `STARTTLS` must be answered `OK`.
-async fn imap(stream: &mut TcpStream, mut reader: Replies) -> Result<(), ProbeError> {
+async fn imap<S: Io>(stream: &mut S, mut reader: Replies) -> Result<(), ProbeError> {
     let greeting = reader.line(stream).await?;
     if !greeting
         .strip_prefix("* ")
@@ -194,7 +199,7 @@ fn expect_imap(lines: &[String], step: &str) -> Result<(), ProbeError> {
 
 /// POP3 dialogue (RFC 1939 §4, RFC 2449 §5, RFC 2595 §4): `+OK`
 /// greeting, `CAPA` must list `STLS`, then `STLS` must be answered `+OK`.
-async fn pop3(stream: &mut TcpStream, mut reader: Replies) -> Result<(), ProbeError> {
+async fn pop3<S: Io>(stream: &mut S, mut reader: Replies) -> Result<(), ProbeError> {
     let greeting = reader.line(stream).await?;
     // RFC 2449 §3: `greeting = "+OK" [resp-code] *gchar`, so text such as an
     // APOP timestamp may follow `+OK` without a space.
@@ -241,7 +246,7 @@ fn expect_pop3(line: &str, step: &str) -> Result<(), ProbeError> {
 
 /// FTP dialogue (RFC 959 §4.2, RFC 4217 §4): 220 greeting, `AUTH TLS`,
 /// expect 234. A server without TLS refuses `AUTH`, so `FEAT` is not needed.
-async fn ftp(stream: &mut TcpStream, mut reader: Replies) -> Result<(), ProbeError> {
+async fn ftp<S: Io>(stream: &mut S, mut reader: Replies) -> Result<(), ProbeError> {
     let greeting = reader.ftp(stream).await?;
     expect(&greeting, 220, "greeting")?;
     send(stream, b"AUTH TLS\r\n").await?;
@@ -257,7 +262,7 @@ const POSTGRES_SSL_REQUEST: &[u8] = &[0, 0, 0, 8, 0x04, 0xd2, 0x16, 0x2f];
 /// PostgreSQL dialogue: send `SSLRequest`, expect the single byte `S`.
 /// `N` means the server has no TLS; an `ErrorResponse` (`E`) comes from
 /// servers that predate `SSLRequest`.
-async fn postgres(stream: &mut TcpStream, mut reader: Replies) -> Result<(), ProbeError> {
+async fn postgres<S: Io>(stream: &mut S, mut reader: Replies) -> Result<(), ProbeError> {
     send(stream, POSTGRES_SSL_REQUEST).await?;
     match reader.byte(stream).await? {
         b'S' => reader.finish(),
@@ -288,7 +293,7 @@ const MYSQL_SSL_REQUEST: &[u8] = &[
 /// MySQL dialogue: read the server's initial handshake packet, which must
 /// be protocol version 10 with `CLIENT_SSL`, then send `SSLRequest`. The
 /// server answers with its TLS handshake; there is no plain-text reply.
-async fn mysql(stream: &mut TcpStream, mut reader: Replies) -> Result<(), ProbeError> {
+async fn mysql<S: Io>(stream: &mut S, mut reader: Replies) -> Result<(), ProbeError> {
     let header = reader.take(stream, 4).await?;
     let len = usize::from(header[0]) | usize::from(header[1]) << 8 | usize::from(header[2]) << 16;
     if header[3] != 0 || len == 0 {
@@ -341,7 +346,7 @@ const XMPP_TLS: &str = "urn:ietf:params:xml:ns:xmpp-tls";
 
 /// XMPP client dialogue (RFC 6120 §4.2, §5.4.2): open a stream to `host`,
 /// the features must offer `starttls`, send it, expect `proceed`.
-async fn xmpp(stream: &mut TcpStream, mut reader: Replies, host: &str) -> Result<(), ProbeError> {
+async fn xmpp<S: Io>(stream: &mut S, mut reader: Replies, host: &str) -> Result<(), ProbeError> {
     let header = format!(
         "<?xml version='1.0'?><stream:stream to='{}' version='1.0' \
          xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams'>",
@@ -472,7 +477,7 @@ const LDAP_STARTTLS_OID: &[u8] = b"1.3.6.1.4.1.1466.20037";
 /// LDAP dialogue (RFC 4511 §4.14): no greeting; send the `StartTLS`
 /// extended request and expect an `ExtendedResponse` with result
 /// `success` (0) for message ID 1.
-async fn ldap(stream: &mut TcpStream, mut reader: Replies) -> Result<(), ProbeError> {
+async fn ldap<S: Io>(stream: &mut S, mut reader: Replies) -> Result<(), ProbeError> {
     send(stream, LDAP_STARTTLS).await?;
     let message = reader.ber(stream).await?;
     let (id, rest) = ber_field(&message, 0x02)?;
@@ -594,7 +599,7 @@ fn status_is(s: &str, token: &str) -> bool {
 }
 
 /// Writes `data` to `stream`.
-async fn send(stream: &mut TcpStream, data: &[u8]) -> Result<(), ProbeError> {
+async fn send<S: Io>(stream: &mut S, data: &[u8]) -> Result<(), ProbeError> {
     stream.write_all(data).await.map_err(ProbeError::Connect)
 }
 
@@ -639,7 +644,7 @@ struct Replies {
 
 impl Replies {
     /// Reads the next CRLF-terminated line, without the line ending.
-    async fn line(&mut self, stream: &mut TcpStream) -> Result<String, ProbeError> {
+    async fn line<S: Io>(&mut self, stream: &mut S) -> Result<String, ProbeError> {
         loop {
             if let Some(end) = self.data.windows(2).position(|w| w == b"\r\n") {
                 let line = String::from_utf8_lossy(&self.data[..end]).into_owned();
@@ -655,7 +660,7 @@ impl Replies {
 
     /// Appends the next chunk read from `stream`; the server closing the
     /// connection is an error.
-    async fn fill(&mut self, stream: &mut TcpStream) -> Result<(), ProbeError> {
+    async fn fill<S: Io>(&mut self, stream: &mut S) -> Result<(), ProbeError> {
         let mut buf = [0; 4096];
         let n = stream.read(&mut buf).await.map_err(ProbeError::Connect)?;
         if n == 0 {
@@ -667,7 +672,7 @@ impl Replies {
 
     /// Reads an SMTP-style reply: lines of `NNN-text` ending with one
     /// `NNN text` (RFC 5321 §4.2.1).
-    async fn smtp(&mut self, stream: &mut TcpStream) -> Result<Reply, ProbeError> {
+    async fn smtp<S: Io>(&mut self, stream: &mut S) -> Result<Reply, ProbeError> {
         let mut lines = Vec::new();
         let mut code = None;
         let mut total = 0;
@@ -697,7 +702,7 @@ impl Replies {
 
     /// Reads an FTP reply (RFC 959 §4.2): one `NNN text` line, or
     /// `NNN-text`, any lines, and a closing `NNN text` with the same code.
-    async fn ftp(&mut self, stream: &mut TcpStream) -> Result<Reply, ProbeError> {
+    async fn ftp<S: Io>(&mut self, stream: &mut S) -> Result<Reply, ProbeError> {
         let first = self.line(stream).await?;
         let bytes = first.as_bytes();
         let malformed = || error(format!("malformed server reply {first:?}"));
@@ -728,7 +733,7 @@ impl Replies {
 
     /// Reads IMAP response lines up to and including the one tagged
     /// `tag` (RFC 9051 §2.2.2); untagged lines come first.
-    async fn imap(&mut self, stream: &mut TcpStream, tag: &str) -> Result<Vec<String>, ProbeError> {
+    async fn imap<S: Io>(&mut self, stream: &mut S, tag: &str) -> Result<Vec<String>, ProbeError> {
         let mut lines = Vec::new();
         let mut total = 0;
         loop {
@@ -748,7 +753,7 @@ impl Replies {
     /// Reads XML until an element named one of `names`, a stream error or
     /// the end of the stream is complete (see [`xml_end`]); returns
     /// everything up to it.
-    async fn xml(&mut self, stream: &mut TcpStream, names: &[&str]) -> Result<String, ProbeError> {
+    async fn xml<S: Io>(&mut self, stream: &mut S, names: &[&str]) -> Result<String, ProbeError> {
         loop {
             // XMPP is UTF-8 (RFC 6120 §11.6); a split character at the end
             // waits for more data, any other invalid byte is malformed.
@@ -772,7 +777,7 @@ impl Replies {
     }
 
     /// Reads one BER `SEQUENCE` (an LDAP message) and returns its value.
-    async fn ber(&mut self, stream: &mut TcpStream) -> Result<Vec<u8>, ProbeError> {
+    async fn ber<S: Io>(&mut self, stream: &mut S) -> Result<Vec<u8>, ProbeError> {
         loop {
             if self.data.first().is_some_and(|&tag| tag != 0x30) {
                 return Err(malformed_ldap());
@@ -788,7 +793,7 @@ impl Replies {
     }
 
     /// Reads a single byte.
-    async fn byte(&mut self, stream: &mut TcpStream) -> Result<u8, ProbeError> {
+    async fn byte<S: Io>(&mut self, stream: &mut S) -> Result<u8, ProbeError> {
         if self.data.is_empty() {
             self.fill(stream).await?;
         }
@@ -796,7 +801,7 @@ impl Replies {
     }
 
     /// Reads exactly `n` bytes.
-    async fn take(&mut self, stream: &mut TcpStream, n: usize) -> Result<Vec<u8>, ProbeError> {
+    async fn take<S: Io>(&mut self, stream: &mut S, n: usize) -> Result<Vec<u8>, ProbeError> {
         while self.data.len() < n {
             self.fill(stream).await?;
         }
@@ -817,7 +822,7 @@ impl Replies {
 mod tests {
     use super::*;
     use std::net::SocketAddr;
-    use tokio::net::TcpListener;
+    use tokio::net::{TcpListener, TcpStream};
 
     /// Fake server that plays `script`: each entry is the client line it
     /// expects (none for the greeting) and the bytes it answers with.
