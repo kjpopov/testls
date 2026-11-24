@@ -304,8 +304,10 @@ if `gh` is allowed); update it when a session ends.
   CoreDNS on `127.0.0.1:15353/udp` + hidden `--mx-dns`, #109), PR #197 (#191,
   OpenSSL fixtures as ROBOT negative controls, #110; maintainer chose this over
   a 0.9.7a fixture). #196 merged 2026-11-24 (`2f43d83`, #189 closed); the
-  others were rebased on it. #194 also fixes the SARIF fingerprint to ignore
-  the message (#111, optional `Finding::key`, CodeRabbit review). Local
+  others were rebased on it. #194 also pins the SARIF fingerprint of reworded
+  findings (#111): a provided `Finding::key` keeps the fingerprint stable when
+  the message is reworded; findings without a key still hash the message
+  (CodeRabbit review). Local
   CodeRabbit reviews (2026-11-24): #195 and #194 clean; #197 had one minor
   (blanket constant-time claim; OpenSSL 1.0.2 had CVE-2022-4304), fixed.
   `cargo deny check advisories` failed on main on RUSTSEC-2026-0592 (`url`
