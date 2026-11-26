@@ -175,7 +175,7 @@ All behind the opt-in `--intrusive` flag (decision #97), one PR per check.
 
 - Clearer BREACH and ALPACA findings with stable SARIF fingerprints; `url`
   advisory fix; parser fuzzing and fixture coverage (#188, #189, #191, #192).
-- [ ] Release v0.6.2: tag and verify the release workflow
+- [x] Released as [v0.6.2](https://github.com/kjpopov/testls/releases/tag/v0.6.2)
 
 ### v0.7 — Monitoring (sketch)
 - Target groups with owners, expiry dashboard, scheduled rescans with diff
