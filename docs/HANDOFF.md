@@ -4,9 +4,12 @@ State left by the last agent session for the next one. Read this right
 after [AGENTS.md](../AGENTS.md) (then [agent-workflow.md](agent-workflow.md)
 if `gh` is allowed); update it when a session ends.
 
-## State (2026-11-10)
+## State (2026-11-26)
 
-- Release **v0.6.1** prepared in PR `chore/release-0.6.1` (intrusive
+- Preparing **v0.6.2** on `chore/release-0.6.2`. The changelog includes the
+  `Finding` struct-literal migration. After merge, tag the merge commit, verify
+  the release workflow, then regenerate packages from the published checksums.
+- Release **v0.6.1** shipped (release PR #183, packages PR #184; intrusive
   checks, per-suite DH, JSON schema 2; kept 0.6.1 despite the breaking
   schema/API change, maintainer's call). v0.6.0: web service (`testls serve`,
   REST/SSE, browser UI). Previous v0.5.0 (release PR `chore/release-0.5.0`; tag,
@@ -315,9 +318,8 @@ if `gh` is allowed); update it when a session ends.
   by PR #198 (`url` 2.5.9, lockfile only), merged. #194 merged; #195 and #197
   rebased on it (2026-11-24).
 
-Next free decision: #112 (#107, #111 in #194 merged, #108 in open PR #195, #110 in open PR #197, #109 merged; #99 CCS, #100 Ticketbleed, #101 ROBOT, #102 local audit,
-#103 ROBOT fixtures, #104 ROBOT flow oracle, #105 fixture DNS, #106 DH suites). Recheck fresh `main` before assigning
-a number.
+All four issue PRs (#194–#197) merged. Next free decision: #112; recheck
+`main` before assigning a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
    packages PR #151 merged. New crates need a manual first publish plus a
@@ -328,8 +330,8 @@ a number.
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-3. v0.6.1: release PR open; after merge tag, check `release.yml`, then the
-   packages PR. Later backlog: `--delay`, `--parallel`.
+3. v0.6.2 release in progress (see State above). Later backlog: `--delay`,
+   `--parallel`.
 
 ## Local Rust toolchain
 

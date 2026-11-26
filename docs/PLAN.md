@@ -171,6 +171,12 @@ All behind the opt-in `--intrusive` flag (decision #97), one PR per check.
 - [x] ROBOT (`--intrusive`; decisions #101, #104)
 - [x] Released as v0.6.1
 
+### v0.6.2 — Maintenance
+
+- Clearer BREACH and ALPACA findings with stable SARIF fingerprints; `url`
+  advisory fix; parser fuzzing and fixture coverage (#188, #189, #191, #192).
+- [x] Released as v0.6.2
+
 ### v0.7 — Monitoring (sketch)
 - Target groups with owners, expiry dashboard, scheduled rescans with diff
   against the previous scan, persistent storage (format open)
