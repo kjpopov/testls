@@ -6,6 +6,8 @@ All notable changes to `testls` are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-26
+
 ### Added
 
 - Integration test for `--mx` against the fixture DNS server (CoreDNS now
@@ -28,6 +30,8 @@ All notable changes to `testls` are listed here. The format follows
 - Reworded BREACH and ALPACA findings keep their SARIF
   `primaryLocationLineHash`, so existing code-scanning alerts stay open
   (`Finding::with_key` pins the pre-rewording text for future rewordings).
+- Rust API: downstream `testls_checks::Finding` struct literals must add
+  `key: None`; exhaustive patterns can add `..`. `Finding::new` is unchanged.
 
 ### Fixed
 
@@ -368,7 +372,8 @@ First pre-release.
 - Target parsing for host, host:port, IPv4/IPv6 and URLs, plus `--sni`.
 - Release binaries for Linux (static musl), macOS and Windows.
 
-[Unreleased]: https://github.com/kjpopov/testls/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/kjpopov/testls/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/kjpopov/testls/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/kjpopov/testls/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/kjpopov/testls/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kjpopov/testls/compare/v0.4.3...v0.5.0

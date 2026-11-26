@@ -1117,7 +1117,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 
 [[package]]
 name = "testls-data"
-version = "0.6.1"
+version = "0.6.2"
 
 [[package]]
 name = "testls-fuzz"
@@ -1131,7 +1131,7 @@ dependencies = [
 
 [[package]]
 name = "testls-probe"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "getrandom 0.4.3",
  "hickory-resolver",
@@ -1146,7 +1146,7 @@ dependencies = [
 
 [[package]]
 name = "testls-wire"
-version = "0.6.1"
+version = "0.6.2"
 
 [[package]]
 name = "thiserror"
