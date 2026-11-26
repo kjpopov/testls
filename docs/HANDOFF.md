@@ -6,10 +6,10 @@ if `gh` is allowed); update it when a session ends.
 
 ## State (2026-11-26)
 
-- Preparing **v0.6.2** on `chore/release-0.6.2`. The changelog includes the
-  `Finding` struct-literal migration. After merge, tag the merge commit, verify
-  the release workflow, then regenerate packages from the published checksums.
-  PLAN's release checklist remains open; the tag is absent from origin.
+- **[v0.6.2](https://github.com/kjpopov/testls/releases/tag/v0.6.2)** shipped
+  at `8731a3f` (#199). The [release workflow](https://github.com/kjpopov/testls/actions/runs/45882948930)
+  published five archives, the container image and the crates. Package manifests
+  were regenerated from the published `SHA256SUMS` on `chore/packages-0.6.2`.
 - Release **v0.6.1** shipped (release PR #183, packages PR #184; intrusive
   checks, per-suite DH, JSON schema 2; kept 0.6.1 despite the breaking
   schema/API change, maintainer's call). v0.6.0: web service (`testls serve`,
@@ -331,7 +331,7 @@ All four issue PRs (#194–#197) merged. Next free decision: #112; recheck
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
    Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
    v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-3. v0.6.2 release in progress (see State above). Later backlog: `--delay`,
+3. v0.6.2: maintainer Marketplace publication. Later backlog: `--delay`,
    `--parallel`.
 
 ## Local Rust toolchain
