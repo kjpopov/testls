@@ -9,6 +9,7 @@ if `gh` is allowed); update it when a session ends.
 - Preparing **v0.6.2** on `chore/release-0.6.2`. The changelog includes the
   `Finding` struct-literal migration. After merge, tag the merge commit, verify
   the release workflow, then regenerate packages from the published checksums.
+  PLAN's release checklist remains open; the tag is absent from origin.
 - Release **v0.6.1** shipped (release PR #183, packages PR #184; intrusive
   checks, per-suite DH, JSON schema 2; kept 0.6.1 despite the breaking
   schema/API change, maintainer's call). v0.6.0: web service (`testls serve`,
