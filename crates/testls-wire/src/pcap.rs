@@ -12,7 +12,8 @@ use crate::DecodeError;
 pub struct Packet<'a> {
     /// Time since the Unix epoch as recorded by the capturing host.
     pub timestamp: Duration,
-    /// Packet size before capture truncation.
+    /// Reported packet size before capture truncation. A rewritten capture
+    /// can preserve an original length smaller than `data.len()` (§5).
     pub original_len: u32,
     /// Captured bytes, including the link-layer header and any captured FCS.
     pub data: &'a [u8],
@@ -118,7 +119,7 @@ impl<'a> Capture<'a> {
         }
         let captured = word([h[8], h[9], h[10], h[11]]);
         let original_len = word([h[12], h[13], h[14], h[15]]);
-        if captured > original_len || captured > self.snap_len {
+        if captured > self.snap_len {
             return Err(DecodeError::Invalid {
                 field: "pcap captured length",
             });
@@ -214,6 +215,19 @@ mod tests {
         }
     }
 
+    /// A rewritten original length can be short without changing either record boundary.
+    #[test]
+    fn preserved_short_original_length() {
+        let mut bytes = capture(0xa1b2_c3d4, false);
+        bytes[36..40].copy_from_slice(&2u32.to_be_bytes());
+        let mut records = Capture::new(&bytes).unwrap();
+        let packet = records.next().unwrap().unwrap();
+        assert_eq!(packet.original_len, 2);
+        assert_eq!(packet.data, [1, 2, 3]);
+        assert_eq!(records.next().unwrap().unwrap().data, []);
+        assert!(records.next().is_none());
+    }
+
     /// Reject incorrect magic, versions, bounds, reserved bits and invalid timestamps.
     #[test]
     fn rejects_invalid_fields() {
@@ -224,7 +238,6 @@ mod tests {
             (20, 0x0800_0001),
             (28, 1_000_000),
             (32, u32::MAX),
-            (36, 2),
         ] {
             let mut bytes = capture(0xa1b2_c3d4, false);
             bytes[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
