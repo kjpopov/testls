@@ -81,4 +81,23 @@ mod tests {
         chain[1] = vec![0];
         assert!(order(&chain).is_none()); // unreadable, preserve wire positions
     }
+
+    /// A matching issuer name alone does not identify who signed the child.
+    #[test]
+    fn ambiguous_or_nonverifying_issuer_is_inconclusive() {
+        let leaf = include_bytes!("testdata/trust-leaf.der").to_vec();
+        let root = include_bytes!("testdata/trust-root.der").to_vec();
+        let issuer = include_bytes!("testdata/trust-intermediate.der").to_vec();
+        let mut chain = vec![leaf, root.clone(), issuer.clone(), issuer, root];
+        let has_finding = |chain: &[Vec<u8>]| {
+            certificate_findings(chain, None, 1_782_864_000)
+                .iter()
+                .any(|f| f.id == "cert.chain_order")
+        };
+        assert!(!has_finding(&chain)); // two candidate issuers with the same name
+        chain.truncate(3);
+        assert!(has_finding(&chain));
+        *chain[0].last_mut().unwrap() ^= 1; // change the signature, not the issuer DN
+        assert!(!has_finding(&chain));
+    }
 }
