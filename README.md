@@ -59,6 +59,8 @@ at least one, `2` the scan failed.
 - [Usage](docs/usage.md): targets, connection options, output formats,
   policies, suppressions and baselines
 - [Grading](docs/grading.md): how the letter grade is computed
+- [Native Rust API](https://docs.rs/testls-scan): run one scan, receive section events,
+  and inspect typed results ([example source](crates/testls-scan/src/native.md))
 - [Install](docs/install.md): all packages, shell completions, man pages
 - [GitHub Action](docs/github-action.md)
 - [JSON report format](docs/json-schema.md)

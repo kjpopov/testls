@@ -5,6 +5,8 @@
 //! The command-line tool renders the [`Event`]s as text; other front ends
 //! can serialise them instead.
 
+#![doc = include_str!("native.md")]
+
 mod profile;
 mod revocation;
 mod sections;
