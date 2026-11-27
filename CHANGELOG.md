@@ -8,6 +8,8 @@ All notable changes to `testls` are listed here. The format follows
 
 ### Added
 
+- `testls-wire` can iterate classic pcap packet records in memory, including
+  captures with nanosecond timestamps. Malformed or incomplete records return an error.
 - `--delay 250ms` spaces target TCP connection starts. `--parallel 1..8`
   sets how many independent protocol versions a scan may test at once.
   Defaults: no added delay, one at a time. Both are available in the scan API.
