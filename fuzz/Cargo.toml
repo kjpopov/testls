@@ -65,6 +65,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "pcap_records"
+path = "fuzz_targets/pcap_records.rs"
+test = false
+doc = false
+bench = false
+
 # Keep the fuzz crate out of the parent workspace.
 [workspace]
 members = ["."]

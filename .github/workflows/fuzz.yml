@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [record_stream, server_hello, certificate_list, server_key_exchange, ssl2_server_hello, http_header_parser, starttls_dialogue]
+        target: [record_stream, server_hello, certificate_list, server_key_exchange, ssl2_server_hello, http_header_parser, starttls_dialogue, pcap_records]
     runs-on: ubuntu-latest
     env:
       TARGET: ${{ matrix.target }}
