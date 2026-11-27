@@ -28,7 +28,8 @@ hello in each TCP direction over Ethernet II or raw IPv4/IPv6. It accepts
 in-order segments and matching retransmissions, including hellos split across
 TLS records. It skips mid-stream traffic, STARTTLS, VLANs, IP fragments and
 IPv6 extension headers. A gap or conflicting overlap abandons that direction.
-It tracks up to 128 unfinished directions and reads up to 80 KiB of TCP
+It remembers the last 1,024 finished directions to suppress duplicate TCP
+openers. It tracks up to 128 unfinished directions and reads up to 80 KiB of TCP
 prefix per direction for a hello body of up to 64 KiB.
 
 Zero observed hellos is a valid result, including for encrypted or incomplete

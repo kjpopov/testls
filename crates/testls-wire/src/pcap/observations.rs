@@ -151,6 +151,33 @@ fn rejects_ambiguous_prefixes() {
     }
 }
 
+/// RFC 4217 §7 allows the TLS client to be the TCP acceptor on a data channel.
+#[test]
+fn role_comes_from_handshake() {
+    for (flags, data, is_client) in [(18, client(), true), (2, server([0; 32]), false)] {
+        let mut f = file(101);
+        record(&mut f, &packet(false, 100, flags, &data), None);
+        let got = observations(&f);
+        assert_eq!(got.len(), 1);
+        assert_eq!(matches!(got[0].hello, Hello::Client { .. }), is_client);
+    }
+}
+
+/// A duplicate opener cannot revive a rejected direction or emit a hello twice.
+#[test]
+fn retired_opener() {
+    let data = client();
+    let mut f = file(101);
+    record(&mut f, &packet(false, 0, 2, &data[..8]), None);
+    record(&mut f, &packet(false, 1, 16, &[0]), None); // conflicting overlap
+    record(&mut f, &packet(false, 0, 2, &data), None);
+    assert_eq!(observations(&f), []);
+    for seq in [200, 200, 400, 200] {
+        record(&mut f, &packet(false, seq, 2, &data), None);
+    }
+    assert_eq!(observations(&f).len(), 2);
+}
+
 /// Bytes outside the IP packet and missing FCS bytes cannot be interpreted as TLS.
 #[test]
 fn declared_lengths() {

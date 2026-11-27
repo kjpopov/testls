@@ -1,7 +1,11 @@
 //! First cleartext hello in each observed TCP direction. Require its SYN so
 //! that a capture starting inside ciphertext cannot masquerade as a handshake.
 
-use std::{collections::HashMap, net::SocketAddr, time::Duration};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    net::SocketAddr,
+    time::Duration,
+};
 
 use super::{Capture, tcp};
 use crate::{
@@ -95,7 +99,6 @@ const MAX_MESSAGE: usize = 64 * 1024;
 /// from completed TLS records. Cursors advance monotonically across segments.
 struct Prefix {
     first: u32,
-    server: bool,
     bytes: Vec<u8>,
     consumed: usize,
     handshake: Vec<u8>,
@@ -135,11 +138,11 @@ impl Prefix {
             // A later message may share the final record; retain only the first.
             self.handshake
                 .extend_from_slice(&fragment[..len.min(MAX_MESSAGE + 4 - self.handshake.len())]);
-            if self.handshake[0] != if self.server { 2 } else { 1 } {
+            if !matches!(self.handshake[0], 1 | 2) {
                 return Err(());
             }
             if let Some((msg, _)) = parse_handshake(&self.handshake).map_err(|_| ())? {
-                if !self.server {
+                if msg.typ == 1 {
                     return client(msg.body).ok_or(()).map(Some);
                 }
                 let h = ServerHello::parse(msg.body).map_err(|_| ())?;
@@ -160,11 +163,66 @@ impl Prefix {
     }
 }
 
+type Direction = (SocketAddr, SocketAddr);
+
+/// Retire payload buffers immediately but remember the last 1,024 finished
+/// directions by endpoint pair and first sequence number (RFC 9293 §3.4).
+#[derive(Default)]
+struct Directions {
+    active: HashMap<Direction, Prefix>,
+    retired: HashSet<(Direction, u32)>,
+    retirement_order: VecDeque<(Direction, u32)>,
+}
+
+impl Directions {
+    /// Drop this direction's bytes and keep a bounded duplicate-detection window.
+    fn retire(&mut self, key: Direction) {
+        if let Some(p) = self.active.remove(&key) {
+            let id = (key, p.first);
+            self.retired.insert(id);
+            self.retirement_order.push_back(id);
+            if self.retirement_order.len() > 1024
+                && let Some(oldest) = self.retirement_order.pop_front()
+            {
+                self.retired.remove(&oldest);
+            }
+        }
+    }
+
+    /// Accept a new sequence space, an active SYN retransmission, or neither.
+    fn start(&mut self, key: Direction, first: u32, ack: bool) -> bool {
+        if self.retired.contains(&(key, first)) {
+            return false;
+        }
+        if self.active.get(&key).is_some_and(|p| p.first == first) {
+            return true;
+        }
+        self.retire(key);
+        if !ack {
+            self.retire((key.1, key.0));
+        }
+        if self.active.len() >= MAX_DIRECTIONS {
+            return false;
+        }
+        self.active.insert(
+            key,
+            Prefix {
+                first,
+                bytes: Vec::new(),
+                consumed: 0,
+                handshake: Vec::new(),
+            },
+        );
+        true
+    }
+}
+
 /// Inspect classic Ethernet II or raw IP pcap records in capture order. Calls
 /// `observe` once the initial cleartext hello in a SYN-anchored TCP direction is
 /// complete. Stops that direction on a gap, conflicting overlap, or size limit;
 /// ignores IP fragments, IPv6 extension headers and mid-stream captures.
 /// At most 128 directions are buffered; further SYNs are skipped at capacity.
+/// Retransmitted SYNs for the most recent 1,024 retired directions are ignored.
 /// Returns the number of packet records read, including skipped packets.
 ///
 /// # Errors
@@ -179,7 +237,7 @@ pub fn inspect(bytes: &[u8], mut observe: impl FnMut(Observation)) -> Result<usi
         });
     }
     let fcs = usize::from(capture.fcs_bytes().unwrap_or(0));
-    let mut streams = HashMap::<_, Prefix>::new();
+    let mut streams = Directions::default();
     let mut packets = 0;
     for packet in capture {
         let packet = packet?;
@@ -196,31 +254,16 @@ pub fn inspect(bytes: &[u8], mut observe: impl FnMut(Observation)) -> Result<usi
         };
         let key = s.endpoints;
         if s.flags & 4 != 0 {
-            streams.remove(&key);
-            streams.remove(&(key.1, key.0));
+            streams.retire(key);
+            streams.retire((key.1, key.0));
             continue;
         }
         let syn = s.flags & 2 != 0;
         let seq = s.sequence.wrapping_add(u32::from(syn));
-        if syn && streams.get(&key).is_none_or(|p| p.first != seq) {
-            let server = s.flags & 16 != 0;
-            if !server {
-                streams.remove(&(key.1, key.0));
-            }
-            if streams.len() < MAX_DIRECTIONS || streams.contains_key(&key) {
-                streams.insert(
-                    key,
-                    Prefix {
-                        first: seq,
-                        server,
-                        bytes: Vec::new(),
-                        consumed: 0,
-                        handshake: Vec::new(),
-                    },
-                );
-            }
+        if syn && !streams.start(key, seq, s.flags & 16 != 0) {
+            continue;
         }
-        let Some(p) = streams.get_mut(&key) else {
+        let Some(p) = streams.active.get_mut(&key) else {
             continue;
         };
         if !s.data.is_empty() {
@@ -233,15 +276,15 @@ pub fn inspect(bytes: &[u8], mut observe: impl FnMut(Observation)) -> Result<usi
                         destination: key.1,
                         hello,
                     });
-                    streams.remove(&key);
+                    streams.retire(key);
                 }
                 Err(()) => {
-                    streams.remove(&key);
+                    streams.retire(key);
                 }
             }
         }
         if s.flags & 1 != 0 {
-            streams.remove(&key);
+            streams.retire(key);
         }
     }
     Ok(packets)
