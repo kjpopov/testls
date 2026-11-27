@@ -36,6 +36,27 @@ Zero observed hellos is a valid result, including for encrypted or incomplete
 captures. An unreadable, malformed or unsupported capture returns exit code 2;
 lines printed before a framing error describe only the valid prefix.
 
+### Browser build
+
+The browser viewer reads the selected file in a local Web Worker. It uses the
+same decoder as `testls pcap` and displays the first 2,048 hellos, with totals
+for the whole file. There is no scan service or file upload. Build it from
+the repository root with the `wasm-bindgen` CLI matching `Cargo.lock`:
+
+```sh
+rustup target add wasm32-unknown-unknown
+id=$(cargo pkgid --locked wasm-bindgen)
+cargo install --locked --bin wasm-bindgen --version "${id##*@}" wasm-bindgen-cli
+sh scripts/build-pcap-web.sh
+python3 -m http.server 8000 --bind 127.0.0.1 --directory target/pcap-web
+```
+
+Open `http://127.0.0.1:8000/` and choose a capture. To embed the reader, import
+the generated `testls_wasm.js` module, `await init()` (its default export),
+and call `inspectCapture(bytes)` with a `Uint8Array`. It returns plain text or
+throws on invalid input. `maxCaptureBytes()` gives the limit to check before
+loading a file into memory. Use `textContent` to display the result.
+
 ## Targets
 
 ```bash

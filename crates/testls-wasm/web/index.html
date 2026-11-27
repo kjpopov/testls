@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inspect a TLS capture · testls</title>
+<h1>Inspect a TLS capture</h1>
+<p>Choose a classic pcap (up to 64 MiB). The file stays in your browser.
+Only visible TLS hellos are reported; a server selection does not prove a completed handshake.</p>
+<label>Capture file <input type="file" id="capture"></label>
+<pre id="report" aria-live="polite"></pre>
+<script type="module" src="./viewer.js"></script>
+</html>

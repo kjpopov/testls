@@ -186,7 +186,7 @@ piece in its own PR; tick the release only after the tagged workflow passes.
 - [x] Bounded parallel protocol version probes per target (`--parallel`, #112).
 - [x] Library API for callers of `testls-scan` (compiling example in PR #202).
 - [x] Offline pcap import: `testls pcap FILE` reports visible TLS hello metadata (#113).
-- [ ] WASM build.
+- [x] Browser WASM build for offline pcap inspection, sharing the CLI decoder (#113).
 - [ ] PKI: CAA lookup and DANE/TLSA lookup.
 - [ ] PKI: AIA intermediate fetching and reporting of the chain order sent by the server.
 - [ ] PKI: additional trust stores.

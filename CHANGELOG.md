@@ -8,6 +8,8 @@ All notable changes to `testls` are listed here. The format follows
 
 ### Added
 
+- [Browser capture viewer](docs/usage.md#browser-build): inspect visible TLS hellos
+  in a local pcap with WebAssembly, using the same decoder as the CLI.
 - `testls pcap FILE` reads visible TLS client offers and server selections
   from a classic capture offline; see [usage](docs/usage.md#inspect-a-capture-offline).
 - `testls-wire` can iterate classic pcap packet records in memory, including

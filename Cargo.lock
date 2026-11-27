@@ -1668,6 +1668,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "testls-wasm"
+version = "0.6.2"
+dependencies = [
+ "js-sys",
+ "testls-wire",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "testls-wire"
 version = "0.6.2"
 

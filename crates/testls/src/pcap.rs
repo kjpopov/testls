@@ -7,65 +7,15 @@ use std::{
     process::ExitCode,
 };
 
-use testls_wire::pcap::{self, Hello, Observation};
-
-/// Limit both ordinary files and inputs whose size changes after opening.
-const MAX_BYTES: u64 = 64 * 1024 * 1024;
-
-/// Render numeric endpoints and visible handshake fields only, in capture order.
-fn line(out: &mut impl io::Write, observation: Observation) -> io::Result<()> {
-    let t = observation.timestamp;
-    write!(
-        out,
-        "{}.{:09} {} -> {}  ",
-        t.as_secs(),
-        t.subsec_nanos(),
-        observation.source,
-        observation.destination
-    )?;
-    match observation.hello {
-        Hello::Client {
-            legacy_version,
-            offered_versions,
-            cipher_count,
-        } => {
-            write!(
-                out,
-                "ClientHello legacy={legacy_version} offered_ciphers={cipher_count}"
-            )?;
-            if !offered_versions.is_empty() {
-                write!(out, " supported_versions=")?;
-                for (i, version) in offered_versions.iter().enumerate() {
-                    if i != 0 {
-                        write!(out, ",")?;
-                    }
-                    write!(out, "{version}")?;
-                }
-            }
-            writeln!(out)
-        }
-        Hello::Server {
-            version,
-            cipher_suite,
-            retry,
-        } => {
-            let kind = if retry {
-                "HelloRetryRequest"
-            } else {
-                "ServerHello"
-            };
-            writeln!(out, "{kind} selected={version} cipher=0x{cipher_suite:04x}")
-        }
-    }
-}
+use testls_wire::pcap;
 
 /// Inspect the bounded input and print an explicit count even for an empty observation set.
 fn import(file: &Path, out: &mut impl io::Write) -> io::Result<()> {
     let mut bytes = Vec::new();
     File::open(file)?
-        .take(MAX_BYTES + 1)
+        .take(u64::from(pcap::MAX_CAPTURE_BYTES) + 1)
         .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_BYTES {
+    if bytes.len() > pcap::MAX_CAPTURE_BYTES as usize {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "capture exceeds 64 MiB",
@@ -75,7 +25,7 @@ fn import(file: &Path, out: &mut impl io::Write) -> io::Result<()> {
     let mut written = Ok(());
     let packets = pcap::inspect(&bytes, |observation| {
         if written.is_ok() {
-            written = line(out, observation);
+            written = writeln!(out, "{observation}");
         }
         count += 1;
     })
