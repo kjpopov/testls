@@ -117,7 +117,7 @@ pub async fn detect_protocols_with_limit(
     sni: Option<&str>,
     limit: Parallelism,
 ) -> Vec<ProtocolResult> {
-    stream::iter(ProtocolVersion::ALL)
+    let mut results: Vec<_> = stream::iter(ProtocolVersion::ALL)
         .map(|version| async move {
             let support = match probe_protocol(transport, version, sni).await {
                 Ok(s) => s,
@@ -128,9 +128,12 @@ pub async fn detect_protocols_with_limit(
             };
             ProtocolResult { version, support }
         })
-        .buffered(usize::from(limit.0))
+        .buffer_unordered(usize::from(limit.0))
         .collect()
-        .await
+        .await;
+    // ALL is oldest to newest; report in wire-version order regardless of response times.
+    results.sort_unstable_by_key(|r| r.version);
+    results
 }
 
 #[cfg(test)]
@@ -155,10 +158,10 @@ mod tests {
                     .is_err()
             );
             drop(second);
-            drop(first);
             for _ in 2..ProtocolVersion::ALL.len() {
                 drop(listener.accept().await.unwrap());
             }
+            drop(first);
         };
         let probe = detect_protocols_with_limit(&transport, None, Parallelism::new(2).unwrap());
         let (results, ()) = timeout(Duration::from_secs(3), async { tokio::join!(probe, peer) })
