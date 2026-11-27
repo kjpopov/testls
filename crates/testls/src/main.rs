@@ -22,7 +22,7 @@ use baseline::Baseline;
 use config::Config;
 use testls_report::json::Suppressed;
 use testls_scan::target::{self, Host, ProxySpec, ResolveOverride, Target, TargetSpec};
-use testls_scan::{Event, Options, ScanProfile, unix_now};
+use testls_scan::{Event, Options, Parallelism, ScanProfile, unix_now};
 
 /// TLS/SSL scanner inspired by testssl.sh.
 #[derive(Debug, Parser)]
@@ -62,6 +62,15 @@ struct Cli {
     /// Per-probe read timeout in seconds.
     #[arg(long, default_value_t = 10, value_name = "SECS")]
     read_timeout: u64,
+
+    /// Minimum time between connection starts to one target (e.g. 250ms or 2s).
+    /// The first connection starts immediately.
+    #[arg(long, default_value = "0ms", value_name = "DURATION", value_parser = parse_delay)]
+    delay: Duration,
+
+    /// Maximum concurrent independent protocol version probes per target (1–8).
+    #[arg(long, default_value = "1", value_name = "N")]
+    parallel: Parallelism,
 
     /// Exit with status 1 if any finding is at least this severe.
     #[arg(long, default_value_t = Severity::High, value_name = "SEVERITY",
@@ -188,6 +197,21 @@ struct Cli {
           value_parser = clap::builder::PossibleValuesParser::new(Format::ALL.map(Format::as_str))
               .map(|s| s.parse::<Format>().expect("listed value")))]
     format: Format,
+}
+
+/// Parses a whole number of milliseconds or seconds, also accepting `0` to disable pacing.
+fn parse_delay(value: &str) -> Result<Duration, &'static str> {
+    const USAGE: &str = "expected a duration such as 250ms or 2s";
+    if value == "0" {
+        return Ok(Duration::ZERO);
+    }
+    let (n, millis) = value
+        .strip_suffix("ms")
+        .map(|n| (n, 1))
+        .or_else(|| value.strip_suffix('s').map(|n| (n, 1000)))
+        .ok_or(USAGE)?;
+    let n: u32 = n.parse().map_err(|_| USAGE)?;
+    Ok(Duration::from_millis(u64::from(n) * millis))
 }
 
 /// Subcommands besides the default scan.
@@ -971,6 +995,8 @@ fn scan_options(cli: &Cli, scan_target: &Target) -> Options {
         .or(scan_target.default_sni())
         .map(str::to_owned);
     options.profile = cli.profile;
+    options.delay = cli.delay;
+    options.parallel = cli.parallel;
     options.revocation = cli.revocation;
     options.intrusive = cli.intrusive;
     options.revocation_allow_private = cli.revocation_allow_private;
@@ -1066,6 +1092,39 @@ mod tests {
     //! Unit tests for the scan helpers.
 
     use super::*;
+
+    /// CLI defaults, explicit bounds, and duration units reach the scan options.
+    #[test]
+    fn connection_controls() {
+        let target = "example.com".parse().unwrap();
+        let options = |args: &[&str]| scan_options(&Cli::try_parse_from(args).unwrap(), &target);
+        let defaults = options(&["testls", "example.com"]);
+        assert_eq!(
+            (defaults.delay, defaults.parallel),
+            (Duration::ZERO, Parallelism::default())
+        );
+        let set = options(&[
+            "testls",
+            "--delay",
+            "250ms",
+            "--parallel",
+            "8",
+            "example.com",
+        ]);
+        assert_eq!(
+            (set.delay, Some(set.parallel)),
+            (Duration::from_millis(250), Parallelism::new(8))
+        );
+        assert_eq!(parse_delay("2s"), Ok(Duration::from_secs(2)));
+        for (flag, bad) in [
+            ("--delay", "1"),
+            ("--delay", "1.5s"),
+            ("--parallel", "0"),
+            ("--parallel", "9"),
+        ] {
+            assert!(Cli::try_parse_from(["testls", flag, bad, "example.com"]).is_err());
+        }
+    }
 
     /// `explain` describes one id, lists all ids, and rejects unknown ones.
     #[test]

@@ -6,6 +6,12 @@ All notable changes to `testls` are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `--delay 250ms` spaces target TCP connection starts. `--parallel 1..8`
+  sets how many independent protocol versions a scan may test at once.
+  Defaults: no added delay, one at a time. Both are available in the scan API.
+
 ## [0.6.2] - 2026-11-26
 
 ### Added

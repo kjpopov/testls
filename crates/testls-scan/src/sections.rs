@@ -376,14 +376,11 @@ pub(crate) async fn vulnerability_section(
     // The RFC 2817 upgrade probe speaks plaintext HTTP, which STARTTLS
     // protocols are not.
     let (features, upgrade) = if probe {
-        let upgrade = async {
-            match transport.starttls {
-                Some(_) => None,
-                None => Some(Box::pin(probe_tls_upgrade(transport, sni)).await),
-            }
+        let features = Box::pin(probe_features(transport, &ciphers, sni)).await;
+        let upgrade = match transport.starttls {
+            Some(_) => None,
+            None => Some(Box::pin(probe_tls_upgrade(transport, sni)).await),
         };
-        let (features, upgrade) =
-            tokio::join!(Box::pin(probe_features(transport, &ciphers, sni)), upgrade);
         (features.ok(), upgrade)
     } else {
         (None, None)

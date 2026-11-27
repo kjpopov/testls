@@ -34,15 +34,17 @@ pub struct TlsUpgrade {
 /// Offers an RFC 2817 upgrade to TLS on the scanned port and on port 80.
 ///
 /// `sni` names the `Host`; the IP address is used without it. Costs at most
-/// two connections, made concurrently.
+/// two connections, made sequentially.
 pub async fn probe_tls_upgrade(transport: &Transport, sni: Option<&str>) -> Vec<TlsUpgrade> {
     if transport.addr.port() == HTTP_PORT {
         return vec![upgrade_on(transport, sni).await];
     }
     let mut plain = transport.clone();
     plain.addr.set_port(HTTP_PORT);
-    let (a, b) = tokio::join!(upgrade_on(transport, sni), upgrade_on(&plain, sni));
-    vec![a, b]
+    vec![
+        upgrade_on(transport, sni).await,
+        upgrade_on(&plain, sni).await,
+    ]
 }
 
 /// Sends the upgrade request to [`Transport::addr`] and classifies the

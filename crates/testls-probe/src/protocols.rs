@@ -1,5 +1,6 @@
 //! Protocol version detection.
 
+use futures_util::{StreamExt as _, stream};
 use testls_wire::ProtocolVersion;
 
 use crate::hello::{client_hello, legacy_suites, ssl2_client_hello, tls13_suites};
@@ -75,17 +76,63 @@ pub async fn probe_protocol(
 ///
 /// Probes run sequentially; a probe error is recorded rather than aborting.
 pub async fn detect_protocols(transport: &Transport, sni: Option<&str>) -> Vec<ProtocolResult> {
-    let mut results = Vec::with_capacity(ProtocolVersion::ALL.len());
-    for version in ProtocolVersion::ALL {
-        let support = match probe_protocol(transport, version, sni).await {
-            Ok(s) => s,
-            // Servers that drop the connection on unknown versions are
-            // common; treat transport failures after connect as "no".
-            Err(ProbeError::Io(_)) => ProtocolSupport::NotSupported,
-            Err(e) => ProtocolSupport::Error(e.to_string()),
-        };
-        results.push(ProtocolResult { version, support });
+    detect_protocols_with_limit(transport, sni, Parallelism::default()).await
+}
+
+/// Maximum number of independent protocol offers in flight for one target (1–8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Parallelism(u8);
+
+impl Parallelism {
+    /// Creates a limit, rejecting values outside 1–8.
+    #[must_use]
+    pub const fn new(limit: u8) -> Option<Self> {
+        match limit {
+            1..=8 => Some(Self(limit)),
+            _ => None,
+        }
     }
+}
+
+impl Default for Parallelism {
+    /// Scans one version at a time.
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
+impl std::str::FromStr for Parallelism {
+    type Err = &'static str;
+
+    /// Parses the same bounds enforced for native callers.
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        value.parse().ok().and_then(Self::new).ok_or("expected 1–8")
+    }
+}
+
+/// Measures independent versions concurrently up to `limit`, returning the same
+/// version order and support classifications as [`detect_protocols`].
+pub async fn detect_protocols_with_limit(
+    transport: &Transport,
+    sni: Option<&str>,
+    limit: Parallelism,
+) -> Vec<ProtocolResult> {
+    let mut results: Vec<_> = stream::iter(ProtocolVersion::ALL)
+        .map(|version| async move {
+            let support = match probe_protocol(transport, version, sni).await {
+                Ok(s) => s,
+                // Servers that drop the connection on unknown versions are
+                // common; treat transport failures after connect as "no".
+                Err(ProbeError::Io(_)) => ProtocolSupport::NotSupported,
+                Err(e) => ProtocolSupport::Error(e.to_string()),
+            };
+            ProtocolResult { version, support }
+        })
+        .buffer_unordered(usize::from(limit.0))
+        .collect()
+        .await;
+    // ALL is oldest to newest; report in wire-version order regardless of response times.
+    results.sort_unstable_by_key(|r| r.version);
     results
 }
 
@@ -93,6 +140,38 @@ pub async fn detect_protocols(transport: &Transport, sni: Option<&str>) -> Vec<P
 mod tests {
     use super::*;
     use testls_wire::{Alert, AlertLevel, RawExtension, ServerHello, Ssl2ServerHello};
+
+    /// Hold two version offers open: the third cannot arrive until one finishes.
+    /// Completing connections out of order must not change the report order.
+    #[tokio::test]
+    async fn bounded_version_offers() {
+        use std::time::Duration;
+        use tokio::{net::TcpListener, time::timeout};
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let transport = Transport::new(listener.local_addr().unwrap());
+        let peer = async {
+            let (first, _) = listener.accept().await.unwrap();
+            let (second, _) = listener.accept().await.unwrap();
+            assert!(
+                timeout(Duration::from_millis(40), listener.accept())
+                    .await
+                    .is_err()
+            );
+            drop(second);
+            for _ in 2..ProtocolVersion::ALL.len() {
+                drop(listener.accept().await.unwrap());
+            }
+            drop(first);
+        };
+        let probe = detect_protocols_with_limit(&transport, None, Parallelism::new(2).unwrap());
+        let (results, ()) = timeout(Duration::from_secs(3), async { tokio::join!(probe, peer) })
+            .await
+            .unwrap();
+        assert_eq!(
+            results.iter().map(|r| r.version).collect::<Vec<_>>(),
+            ProtocolVersion::ALL
+        );
+    }
 
     fn sh(legacy: ProtocolVersion, exts: Vec<RawExtension>) -> HelloResponse {
         HelloResponse::ServerHello {

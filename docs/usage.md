@@ -50,6 +50,21 @@ testls --mx example.com
 
 ## Connection control
 
+`--delay 250ms` makes the scanner wait at least 250 milliseconds between
+TCP connection starts within each target scan, including STARTTLS. The first
+starts immediately. Use whole milliseconds (`ms`) or seconds (`s`); the
+default is zero. Waiting does not use the connect timeout. DNS and
+third-party revocation fetches are separate.
+
+With `--proxy`, the delay spaces connections **from the scanner to the proxy**.
+The proxy decides when to connect to the target and may start several upstream
+connections close together, even when the scanner spaces its requests.
+
+`--parallel 3` tests up to three protocol versions at once. The range is 1–8
+and the default is 1. With both flags set, the scanner still spaces its own
+connection starts, even when earlier offers are pending. Later measurements
+and targets run in order, and protocol output retains its usual order.
+
 ```bash
 # Scan a host name at a fixed address, e.g. a new server before a DNS change
 testls --resolve example.com:443:192.0.2.10 example.com
