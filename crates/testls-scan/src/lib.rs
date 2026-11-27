@@ -349,7 +349,7 @@ mod tests {
         };
         let store = TrustStore::webpki();
         let mut events = |_: Event<'_>| {};
-        let scan = scan(transport, &options, &store, &mut events);
+        let scan = Box::pin(scan(transport, &options, &store, &mut events));
         let (_, elapsed) = timeout(Duration::from_secs(5), async { tokio::join!(scan, peer) })
             .await
             .unwrap();
