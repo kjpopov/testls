@@ -8,7 +8,9 @@ if `gh` is allowed); update it when a session ends.
 
 - Package PR #200 merged; the maintainer confirmed publication. Next release:
   v0.6.3. Its scope is listed in PLAN above the v0.7 monitoring sketch;
-  implementation starts with the per-target connection policy.
+  the native scan API example merged in #202. PR #203 implements the
+  per-target connection policy. Its review clarified that only client-side TCP
+  starts can be spaced through a proxy; see `docs/usage.md` and decision #112.
 
 - **[v0.6.2](https://github.com/kjpopov/testls/releases/tag/v0.6.2)** shipped
   at `8731a3f` (#199). The [release workflow](https://github.com/kjpopov/testls/actions/runs/45882948930)
