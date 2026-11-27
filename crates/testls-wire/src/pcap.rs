@@ -1,10 +1,17 @@
-//! Zero-copy classic pcap 2.4 framing for offline packet analysis. File and
-//! packet layouts: IETF OPSAWG pcap file format, sections 4 and 5.
-//! No packet data is interpreted, copied, or padded to an alignment boundary.
+//! Classic pcap 2.4 for offline packet analysis. [`Capture`] borrows packet
+//! records without copying; [`inspect`] decodes visible TLS hello metadata.
+//! File and packet layouts: IETF OPSAWG pcap file format, sections 4 and 5.
 
 use std::time::Duration;
 
 use crate::DecodeError;
+
+mod hello;
+#[cfg(test)]
+mod observations;
+mod tcp;
+
+pub use hello::{Hello, Observation, inspect};
 
 /// One packet record. A capture may contain only the first `data.len()`
 /// bytes of an `original_len`-byte packet.

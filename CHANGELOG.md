@@ -8,6 +8,8 @@ All notable changes to `testls` are listed here. The format follows
 
 ### Added
 
+- `testls pcap FILE` reads visible TLS client offers and server selections
+  from a classic capture offline; see [usage](docs/usage.md#inspect-a-capture-offline).
 - `testls-wire` can iterate classic pcap packet records in memory, including
   captures with nanosecond timestamps. Malformed or incomplete records return an error.
 - `--delay 250ms` spaces target TCP connection starts. `--parallel 1..8`

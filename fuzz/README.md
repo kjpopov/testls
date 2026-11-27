@@ -2,12 +2,12 @@
 
 [cargo-fuzz](https://rust-fuzz.github.io/book/cargo-fuzz.html) targets for the
 `testls-wire` and `testls-probe` parsers, which read untrusted bytes from the
-network.
+network or a capture file.
 
 | Target | Input |
 | --- | --- |
 | `record_stream` | A raw server response: record framing, handshake reassembly, then every message parser |
-| `pcap_records` | A classic pcap file: capture header and variable-length packet records |
+| `pcap_records` | A classic pcap file: packet framing, TCP reassembly and visible TLS hellos |
 | `server_hello` | A `ServerHello` / `HelloRetryRequest` body |
 | `certificate_list` | A TLS 1.2 `Certificate` body |
 | `server_key_exchange` | ECDHE and DHE `ServerKeyExchange` parameters |
