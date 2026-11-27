@@ -7,6 +7,7 @@ network.
 | Target | Input |
 | --- | --- |
 | `record_stream` | A raw server response: record framing, handshake reassembly, then every message parser |
+| `pcap_records` | A classic pcap file: capture header and variable-length packet records |
 | `server_hello` | A `ServerHello` / `HelloRetryRequest` body |
 | `certificate_list` | A TLS 1.2 `Certificate` body |
 | `server_key_exchange` | ECDHE and DHE `ServerKeyExchange` parameters |

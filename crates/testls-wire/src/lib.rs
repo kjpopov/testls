@@ -4,6 +4,7 @@
 mod client_hello;
 mod codec;
 mod key_exchange;
+pub mod pcap;
 mod record;
 mod server;
 mod version;
