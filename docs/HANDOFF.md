@@ -4,7 +4,11 @@ State left by the last agent session for the next one. Read this right
 after [AGENTS.md](../AGENTS.md) (then [agent-workflow.md](agent-workflow.md)
 if `gh` is allowed); update it when a session ends.
 
-## State (2026-11-26)
+## State (2026-11-27)
+
+- Package PR #200 merged; the maintainer confirmed publication. Next release:
+  v0.6.3. Its scope is listed in PLAN above the v0.7 monitoring sketch;
+  implementation starts with the per-target connection policy.
 
 - **[v0.6.2](https://github.com/kjpopov/testls/releases/tag/v0.6.2)** shipped
   at `8731a3f` (#199). The [release workflow](https://github.com/kjpopov/testls/actions/runs/45882948930)
@@ -319,7 +323,7 @@ if `gh` is allowed); update it when a session ends.
   by PR #198 (`url` 2.5.9, lockfile only), merged. #194 merged; #195 and #197
   rebased on it (2026-11-24).
 
-All four issue PRs (#194–#197) merged. Next free decision: #112; recheck
+All four issue PRs (#194–#197) merged. Next free decision: #116; recheck
 `main` before assigning a number.
 
 1. v0.6.0 released: GitHub release, container, all 8 crates on crates.io,
@@ -329,10 +333,9 @@ All four issue PRs (#194–#197) merged. Next free decision: #112; recheck
    Marketplace tick.
 2. v0.6 web service done: `testls-scan` (#93), `testls-server` + `testls
    serve` (#94, #95), embedded UI (`crates/testls-server/ui/`, #96).
-   Maintainer supplied the dashboard CSS (own project, reuse OK). Next:
-   v0.7 monitoring sketch in PLAN (ask maintainer to settle scope).
-3. v0.6.2: maintainer Marketplace publication. Later backlog: `--delay`,
-   `--parallel`.
+   Maintainer supplied the dashboard CSS (own project, reuse OK).
+3. v0.6.3 precedes the v0.7 monitoring sketch. Decisions #112–#115 cover
+   pacing and concurrency, native/offline APIs, protocol evidence and PKI.
 
 ## Local Rust toolchain
 
