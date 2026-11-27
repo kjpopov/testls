@@ -206,6 +206,12 @@ const EXPLANATIONS: &[Explanation] = &[
     ),
     // Certificates.
     entry(
+        "cert.chain_order",
+        "A certificate issuer was sent out of order",
+        "The following certificate does not verify the signature, but another certificate in the presented list does. Send the leaf followed by its intermediates in issuer order. This is informational: trust is checked separately against the configured roots.",
+        "RFC 5246 §7.4.2, RFC 8446 §4.4.2",
+    ),
+    entry(
         "cert.missing",
         "No certificate sent",
         "The server completed the handshake without a certificate, so it cannot be authenticated.",
@@ -753,6 +759,7 @@ mod tests {
         let sources = [
             include_str!("baseline.rs"),
             include_str!("certificates.rs"),
+            include_str!("chain_order.rs"),
             include_str!("ciphers.rs"),
             include_str!("details.rs"),
             include_str!("http.rs"),

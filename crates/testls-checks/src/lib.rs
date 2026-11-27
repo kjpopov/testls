@@ -2,6 +2,7 @@
 
 mod baseline;
 mod certificates;
+mod chain_order;
 mod ciphers;
 mod der;
 mod details;

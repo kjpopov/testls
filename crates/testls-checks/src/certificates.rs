@@ -51,20 +51,25 @@ pub fn certificate_findings(chain: &[Vec<u8>], host: Option<&str>, now: i64) -> 
         findings.extend(hostname_finding(&leaf, host));
     }
     findings.extend(key_finding(&leaf));
-    for (position, der) in chain.iter().enumerate() {
-        if position == 0 {
-            findings.extend(signature_finding(&leaf, position));
-            continue;
-        }
+    findings.extend(signature_finding(&leaf, 0));
+    let mut presented = vec![Some(leaf)];
+    for (position, der) in chain.iter().enumerate().skip(1) {
         match parse_entry(der) {
-            Ok(cert) => findings.extend(signature_finding(&cert, position)),
-            Err(e) => findings.push(Finding::new(
-                "cert.unparsable",
-                Severity::High,
-                format!("chain certificate #{position} cannot be parsed: {e}"),
-            )),
+            Ok(cert) => {
+                findings.extend(signature_finding(&cert, position));
+                presented.push(Some(cert));
+            }
+            Err(e) => {
+                findings.push(Finding::new(
+                    "cert.unparsable",
+                    Severity::High,
+                    format!("chain certificate #{position} cannot be parsed: {e}"),
+                ));
+                presented.push(None);
+            }
         }
     }
+    findings.extend(crate::chain_order::misplaced_issuer(&presented));
     findings
 }
 
