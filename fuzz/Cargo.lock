@@ -1133,6 +1133,7 @@ dependencies = [
 name = "testls-probe"
 version = "0.6.2"
 dependencies = [
+ "futures-util",
  "getrandom 0.4.3",
  "hickory-resolver",
  "num-bigint 0.5.1",

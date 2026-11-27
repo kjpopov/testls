@@ -14,6 +14,7 @@ pub mod hello;
 mod http;
 mod intolerance;
 mod mx;
+mod pacing;
 mod protocols;
 mod response;
 mod robot;
@@ -41,7 +42,11 @@ pub use heartbleed::probe_heartbleed;
 pub use http::{HttpResponse, fetch_http_headers};
 pub use intolerance::{Intolerance, probe_intolerance};
 pub use mx::{MxError, MxResolver};
-pub use protocols::{ProtocolResult, ProtocolSupport, classify, detect_protocols, probe_protocol};
+pub use pacing::with_connection_delay;
+pub use protocols::{
+    Parallelism, ProtocolResult, ProtocolSupport, classify, detect_protocols,
+    detect_protocols_with_limit, probe_protocol,
+};
 pub use response::HelloResponse;
 use response::ResponseParser;
 pub use robot::{probe_robot, probe_robot_flow};
@@ -158,6 +163,7 @@ impl Transport {
     /// Opens the TCP connection, directly or through the proxy. Also
     /// returns any tunnel data the proxy relayed after its `CONNECT` reply.
     async fn open(&self) -> Result<(TcpStream, Vec<u8>), ProbeError> {
+        pacing::wait().await;
         match self.proxy {
             Some(proxy) => {
                 tunnel_open(

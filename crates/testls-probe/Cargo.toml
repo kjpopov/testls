@@ -12,6 +12,7 @@ authors.workspace = true
 testls-data.workspace = true
 testls-wire.workspace = true
 getrandom.workspace = true
+futures-util = { workspace = true, features = ["alloc"] }
 num-bigint.workspace = true
 tokio = { workspace = true, features = ["net", "io-util", "time"] }
 rustls.workspace = true
@@ -20,7 +21,7 @@ hickory-resolver.workspace = true
 x509-parser.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lints]
 workspace = true

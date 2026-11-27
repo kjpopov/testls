@@ -20,13 +20,14 @@ use testls_checks::{
 };
 use testls_probe::{
     HandshakeDetails, HttpResponse, Intolerance, ProtocolResult, ProtocolSupport, Transport,
-    detect_protocols,
+    detect_protocols_with_limit, with_connection_delay,
 };
 use testls_report::Painter;
 use testls_report::text::{self, CertificateSection, CipherSection, KeyExchangeSection};
 use testls_wire::ProtocolVersion;
 
 pub use profile::{SKIPPED, ScanProfile};
+pub use testls_probe::Parallelism;
 
 use sections::{
     certificate_section, later_sections, measured, policy_section, revocation_section,
@@ -43,6 +44,10 @@ pub struct Options {
     pub sni: Option<String>,
     /// How thorough the scan is.
     pub profile: ScanProfile,
+    /// Minimum time between target connection starts; the first starts immediately.
+    pub delay: std::time::Duration,
+    /// Maximum concurrent independent version offers (default one).
+    pub parallel: Parallelism,
     /// Check revocation even when the profile does not.
     pub revocation: bool,
     /// Enable intrusive Heartbleed, CCS, Ticketbleed and ROBOT probes; never implied by a profile.
@@ -198,6 +203,20 @@ pub struct Scan {
 ///
 /// [`ScanError::NoProtocol`] when no protocol version could be tested.
 pub async fn scan(
+    transport: Transport,
+    options: &Options,
+    store: &TrustStore,
+    on_event: &mut OnEvent<'_>,
+) -> Result<Scan, ScanError> {
+    with_connection_delay(
+        options.delay,
+        scan_target(transport, options, store, on_event),
+    )
+    .await
+}
+
+/// Runs the sections within one target's connection pacing scope.
+async fn scan_target(
     mut transport: Transport,
     options: &Options,
     store: &TrustStore,
@@ -208,7 +227,7 @@ pub async fn scan(
     let addr = transport.addr;
     let started_at = unix_now();
 
-    let protocols = detect_protocols(&transport, sni).await;
+    let protocols = detect_protocols_with_limit(&transport, sni, options.parallel).await;
     on_event(Event::Protocols(&protocols));
     if protocols
         .iter()
@@ -302,6 +321,41 @@ mod tests {
     //! Unit tests for the scan entry point.
 
     use super::*;
+
+    /// Exercise the full scan entry point against a listener that declines every offer.
+    /// Even with concurrent offers the last TCP start needs five spacing intervals.
+    #[tokio::test]
+    async fn target_connections_observe_delay() {
+        use std::time::Duration;
+        use tokio::{
+            net::TcpListener,
+            time::{Instant, timeout},
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let transport = Transport::new(listener.local_addr().unwrap());
+        let gap = Duration::from_millis(30);
+        let options = Options {
+            delay: gap,
+            parallel: Parallelism::new(4).unwrap(),
+            profile: ScanProfile::Quick,
+            ..Options::default()
+        };
+        let start = Instant::now();
+        let peer = async move {
+            for _ in ProtocolVersion::ALL {
+                drop(listener.accept().await.unwrap());
+            }
+            start.elapsed()
+        };
+        let store = TrustStore::webpki();
+        let mut events = |_: Event<'_>| {};
+        let scan = scan(transport, &options, &store, &mut events);
+        let (_, elapsed) = timeout(Duration::from_secs(5), async { tokio::join!(scan, peer) })
+            .await
+            .unwrap();
+        let intervals = u32::try_from(ProtocolVersion::ALL.len() - 1).unwrap();
+        assert!(elapsed >= gap * intervals, "{elapsed:?}");
+    }
 
     /// The scan future can run on a multi-threaded runtime, as a server
     /// needs.
