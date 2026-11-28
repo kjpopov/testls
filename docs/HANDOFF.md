@@ -13,8 +13,8 @@ if `gh` is allowed); update it when a session ends.
   starts can be spaced through a proxy; see `docs/usage.md` and decision #112.
 - Offline pcap import (#113): framing merged in #204; #205 added
   `testls_wire::pcap::inspect` and `testls pcap FILE`. CI, Coverage, Fuzz and
-  cargo-deny passed on the #205 merge (`8edefb2`). `feat/wasm-pcap`
-  builds the same decoder for a local-file browser viewer; see `docs/usage.md`
+  cargo-deny passed on the #205 merge (`8edefb2`). #206 merged the local-file
+  browser viewer with the same decoder (all five workflows green); see `docs/usage.md`
   for build instructions and limits. The browser crate is not published to crates.io.
 
 - **[v0.6.2](https://github.com/kjpopov/testls/releases/tag/v0.6.2)** shipped
@@ -157,6 +157,10 @@ if `gh` is allowed); update it when a session ends.
   merge it. Existing `handoff-local` stash is untouched.
 
 ## Next work
+
+- PKI (#115): `testls-checks/src/chain_order.rs` checks only the list as sent.
+  `cert.chain_order` is informational; it does not change trust or grading.
+  AIA fetching, named PEM stores and opt-in CAA/TLSA lookups remain open.
 
 - Local fixture cross-check (2026-11-10, branch `docs/local-fixture-audit`
   from merged PR #159 at `2f61b5c`): maintainer authorized local scans with

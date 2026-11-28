@@ -8,6 +8,8 @@ All notable changes to `testls` are listed here. The format follows
 
 ### Added
 
+- `cert.chain_order` identifies a misplaced issuer in the certificate list as
+  sent. The informational finding is independent of trust and the scan grade.
 - [Browser capture viewer](docs/usage.md#browser-build): inspect visible TLS hellos
   in a local pcap with WebAssembly, using the same decoder as the CLI.
 - `testls pcap FILE` reads visible TLS client offers and server selections

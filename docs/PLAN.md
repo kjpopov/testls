@@ -188,7 +188,8 @@ piece in its own PR; tick the release only after the tagged workflow passes.
 - [x] Offline pcap import: `testls pcap FILE` reports visible TLS hello metadata (#113).
 - [x] Browser WASM build for offline pcap inspection, sharing the CLI decoder (#113).
 - [ ] PKI: CAA lookup and DANE/TLSA lookup.
-- [ ] PKI: AIA intermediate fetching and reporting of the chain order sent by the server.
+- [x] PKI: report a verifiable misplaced issuer in the certificate order sent by the server (#115).
+- [ ] PKI: opt-in AIA intermediate fetching (#115).
 - [ ] PKI: additional trust stores.
 - [ ] HTTP/3 (QUIC) detection.
 - [ ] Encrypted Client Hello detection.

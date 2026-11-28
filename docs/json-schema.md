@@ -118,6 +118,11 @@ per target, in scan order. This page describes schema version **2**.
 | `ocsp.error` | string | Only when `invalid`: why the response failed to parse or verify |
 | `error` | string | Only when the chain could not be retrieved; `chain` is then empty |
 
+An informational `cert.chain_order` finding identifies a certificate whose
+signature verifies with a nonadjacent issuer in `chain`, but not with the next
+certificate. Indices are zero-based. An omitted root alone does not trigger
+the finding; trust is evaluated independently of the order sent.
+
 ### HTTP headers
 
 One `GET /` request is sent over a full handshake; redirects are not followed.
