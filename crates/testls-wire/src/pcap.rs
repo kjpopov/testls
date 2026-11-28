@@ -13,6 +13,10 @@ mod tcp;
 
 pub use hello::{Hello, Observation, inspect};
 
+/// Maximum capture size accepted by the CLI and browser frontends (64 MiB).
+/// The lower-level borrowed capture iterator does not impose a file size limit.
+pub const MAX_CAPTURE_BYTES: u32 = 64 * 1024 * 1024;
+
 /// One packet record. A capture may contain only the first `data.len()`
 /// bytes of an `original_len`-byte packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

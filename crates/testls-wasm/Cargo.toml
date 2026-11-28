@@ -1,0 +1,18 @@
+[package]
+name = "testls-wasm"
+description = "Browser bindings for offline TLS capture inspection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+testls-wire.workspace = true
+js-sys.workspace = true
+wasm-bindgen.workspace = true
+
+[lints]
+workspace = true

@@ -4,16 +4,18 @@ State left by the last agent session for the next one. Read this right
 after [AGENTS.md](../AGENTS.md) (then [agent-workflow.md](agent-workflow.md)
 if `gh` is allowed); update it when a session ends.
 
-## State (2026-11-27)
+## State (2026-11-28)
 
 - Package PR #200 merged; the maintainer confirmed publication. Next release:
   v0.6.3. Its scope is listed in PLAN above the v0.7 monitoring sketch;
   the native scan API example merged in #202. PR #203 merged the
   per-target connection policy. Its review clarified that only client-side TCP
   starts can be spaced through a proxy; see `docs/usage.md` and decision #112.
-- Offline pcap import (#113): framing in PR #204; follow-up `feat/pcap-tls-import`
-  adds `testls_wire::pcap::inspect` and `testls pcap FILE`. The browser WASM
-  entry point is next, using the same decoder. Limits: see `docs/usage.md`.
+- Offline pcap import (#113): framing merged in #204; #205 added
+  `testls_wire::pcap::inspect` and `testls pcap FILE`. CI, Coverage, Fuzz and
+  cargo-deny passed on the #205 merge (`8edefb2`). `feat/wasm-pcap`
+  builds the same decoder for a local-file browser viewer; see `docs/usage.md`
+  for build instructions and limits. The browser crate is not published to crates.io.
 
 - **[v0.6.2](https://github.com/kjpopov/testls/releases/tag/v0.6.2)** shipped
   at `8731a3f` (#199). The [release workflow](https://github.com/kjpopov/testls/actions/runs/45882948930)

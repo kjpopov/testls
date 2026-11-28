@@ -3,6 +3,7 @@
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    fmt,
     net::SocketAddr,
     time::Duration,
 };
@@ -47,6 +48,51 @@ pub struct Observation {
     pub destination: SocketAddr,
     /// Visible, unencrypted fields only.
     pub hello: Hello,
+}
+
+impl fmt::Display for Observation {
+    /// Render the timestamp, numeric endpoints and fields visible in this hello.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}.{:09} {} -> {}  ",
+            self.timestamp.as_secs(),
+            self.timestamp.subsec_nanos(),
+            self.source,
+            self.destination
+        )?;
+        match &self.hello {
+            Hello::Client {
+                legacy_version,
+                offered_versions,
+                cipher_count,
+            } => {
+                write!(
+                    f,
+                    "ClientHello legacy={legacy_version} offered_ciphers={cipher_count}"
+                )?;
+                if let Some((first, rest)) = offered_versions.split_first() {
+                    write!(f, " supported_versions={first}")?;
+                    for v in rest {
+                        write!(f, ",{v}")?;
+                    }
+                }
+                Ok(())
+            }
+            Hello::Server {
+                version,
+                cipher_suite,
+                retry,
+            } => {
+                let kind = if *retry {
+                    "HelloRetryRequest"
+                } else {
+                    "ServerHello"
+                };
+                write!(f, "{kind} selected={version} cipher=0x{cipher_suite:04x}")
+            }
+        }
+    }
 }
 
 /// Parse the client vectors from RFC 5246 §7.4.1.2 and RFC 8446 §4.2.1.
