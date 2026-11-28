@@ -185,7 +185,7 @@ piece in its own PR; tick the release only after the tagged workflow passes.
 - [x] Politeness: `--delay` between connection starts within a target scan (#112).
 - [x] Bounded parallel protocol version probes per target (`--parallel`, #112).
 - [x] Library API for callers of `testls-scan` (compiling example in PR #202).
-- [ ] Offline pcap import.
+- [x] Offline pcap import: `testls pcap FILE` reports visible TLS hello metadata (#113).
 - [ ] WASM build.
 - [ ] PKI: CAA lookup and DANE/TLSA lookup.
 - [ ] PKI: AIA intermediate fetching and reporting of the chain order sent by the server.

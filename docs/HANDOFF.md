@@ -11,9 +11,9 @@ if `gh` is allowed); update it when a session ends.
   the native scan API example merged in #202. PR #203 merged the
   per-target connection policy. Its review clarified that only client-side TCP
   starts can be spaced through a proxy; see `docs/usage.md` and decision #112.
-- Offline pcap import (#113): `testls_wire::pcap::Capture` reads classic 2.4
-  packet records. The offline CLI and browser still need link, TCP and TLS
-  decoding; the import and WASM roadmap boxes remain open.
+- Offline pcap import (#113): framing in PR #204; follow-up `feat/pcap-tls-import`
+  adds `testls_wire::pcap::inspect` and `testls pcap FILE`. The browser WASM
+  entry point is next, using the same decoder. Limits: see `docs/usage.md`.
 
 - **[v0.6.2](https://github.com/kjpopov/testls/releases/tag/v0.6.2)** shipped
   at `8731a3f` (#199). The [release workflow](https://github.com/kjpopov/testls/actions/runs/45882948930)

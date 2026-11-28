@@ -2,6 +2,7 @@
 
 mod baseline;
 mod config;
+mod pcap;
 
 use std::fmt::Write as _;
 use std::io::{IsTerminal as _, Write as _};
@@ -217,6 +218,11 @@ fn parse_delay(value: &str) -> Result<Duration, &'static str> {
 /// Subcommands besides the default scan.
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Read observable TLS hello metadata from a classic pcap file offline.
+    Pcap {
+        /// Capture file (Ethernet II or raw IP, up to 64 MiB).
+        file: PathBuf,
+    },
     /// Describe a finding id, or list all ids when none is given.
     Explain {
         /// Finding id as shown in brackets in the findings list.
@@ -446,6 +452,7 @@ fn print_bytes(bytes: &[u8]) -> ExitCode {
 async fn main() -> ExitCode {
     let cli = Cli::parse();
     match &cli.command {
+        Some(Command::Pcap { file }) => pcap::command(file),
         Some(Command::Explain { id }) => explain_command(id.as_deref()),
         Some(Command::Completions { shell }) => print_bytes(&completion_script(*shell)),
         Some(Command::Man { dir: None }) => print_bytes(&man_page()),
